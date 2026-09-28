@@ -2,6 +2,8 @@
 
 > 本文档记录项目环境配置、常见坑点和注意事项，供 Claude Code 和团队成员参考。
 
+> 开工先读 [架构与修改指南](docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md) 和 [强制开发规范](docs/DEVELOPMENT_RULES.md)，再核对真实代码。**任何代码改动必须在同一变更中更新架构指南 §11 的文件级索引；影响架构/行为时同时修正文，无例外地作为合入阻断项。**本地执行 `make check-architecture-index`，暂存后执行 `python3 tools/check_architecture_index.py --staged`；CI 的 `architecture-index` 检查提交范围。本文环境示例若与实际源码或上述规范不同，以核对后的现行实现和规范为准。
+
 ## 一、项目基本信息
 
 | 项目 | 说明 |
@@ -47,7 +49,7 @@ npm install -g pnpm
 
 | Workflow | 触发条件 | 检查内容 |
 |----------|----------|----------|
-| **backend-ci.yml** | push, pull_request | 单元测试 + 集成测试 + golangci-lint v2.13 |
+| **backend-ci.yml** | push, pull_request | 架构索引门禁 + 部署脚本检查 + 单元/集成测试 + golangci-lint v2.13 + 前端关键测试 + 发布辅助测试 |
 | **security-scan.yml** | push, pull_request, 每周一 | govulncheck + gosec + pnpm audit |
 | **release.yml** | tag `v*` | 构建发布（PR 不触发） |
 
@@ -236,6 +238,7 @@ git add ent/       # 生成的文件也要提交
 
 提交 PR 前务必本地验证：
 
+- [ ] 架构指南 §11 已覆盖全部变更代码路径，相关正文已同步；工作区/暂存区索引门禁通过
 - [ ] `go test -tags=unit ./...` 通过
 - [ ] `go test -tags=integration ./...` 通过
 - [ ] `golangci-lint run ./...` 无新增问题

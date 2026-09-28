@@ -401,8 +401,34 @@ jobs:
 
           echo "$VERSION" > backend/cmd/server/VERSION
 
+          # Version sync is a code change too: keep its architecture index in
+          # the same commit and run the gate even for this automated path.
+          python3 - <<'PY'
+          from datetime import date
+          import os
+          from pathlib import Path
+
+          guide = Path("docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md")
+          marker = "<!-- architecture-change-index:end -->"
+          text = guide.read_text(encoding="utf-8")
+          if text.count(marker) != 1:
+              raise SystemExit("Architecture change-index marker is missing or duplicated")
+          version = os.environ["RELEASE_VERSION"]
+          actual = Path("backend/cmd/server/VERSION").read_text().strip()
+          if actual != version:
+              raise SystemExit("VERSION does not match the released version")
+          entry = (
+              f"### {date.today().isoformat()} · RELEASE · 同步版本 {version}\n\n"
+              f"- 文件：`backend/cmd/server/VERSION`；同步已发布版本 {version}，"
+              "供 §3.1 / §9.1 的默认版本读取使用。\n"
+              "- 验证：VERSION 与 RELEASE_VERSION 一致；提交前执行架构索引门禁。\n\n"
+          )
+          guide.write_text(text.replace(marker, entry + marker), encoding="utf-8")
+          PY
+          python3 tools/check_architecture_index.py
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/cmd/server/VERSION
-          git commit -m "chore: sync VERSION to ${VERSION} [skip ci]"
+          git add backend/cmd/server/VERSION docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md
+          git commit -m "chore: sync VERSION to ${VERSION}"
           git push origin HEAD:${{ github.event.repository.default_branch }}

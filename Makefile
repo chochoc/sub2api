@@ -1,4 +1,4 @@
-.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
+.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical check-architecture-index
 
 FRONTEND_CRITICAL_VITEST := \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
@@ -47,3 +47,7 @@ test-frontend:
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+
+# 任意代码变更必须在架构指南中留下本次文件级索引。
+check-architecture-index:
+	@python3 tools/check_architecture_index.py

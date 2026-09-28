@@ -8,6 +8,20 @@ permissions:
   contents: read
 
 jobs:
+  architecture-index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test architecture index gate
+        run: python3 -B -m unittest discover -s tools -p 'test_check_architecture_index.py'
+      - name: Require architecture change index
+        run: python3 tools/check_architecture_index.py --ci
+
   shell:
     runs-on: macos-15
     steps:

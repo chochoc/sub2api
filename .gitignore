@@ -1,66 +1,8 @@
-# 本地杂项文档、测试数据和外部项目副本
-/docs-local/
-.codex
-
-# ===================
-# Go 后端
-# ===================
-# 二进制文件
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-backend/bin/
-backend/server
-backend/sub2api
-backend/main
-
-# Go 测试二进制
-*.test
-
-# 测试覆盖率
-*.out
-coverage.html
-
-# 依赖（使用 go mod）
-vendor/
-
-# Go 编译缓存
-backend/.gocache/
-
-# ===================
-# Node.js / Vue 前端
-# ===================
-node_modules/
-frontend/node_modules/
-frontend/dist/
-*.local
-*.tsbuildinfo
-vite.config.d.ts
-vite.config.js.timestamp-*
-
-# 日志
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# ===================
-# 环境配置
-# ===================
-.env
-.env.local
-.env.*.local
-*.env
-!.env.example
-docker-compose.override.yml
-
-# ===================
 # IDE / 编辑器
-# ===================
 .idea/
 .vscode/
+.zed/
+.history/
 *.swp
 *.swo
 *~
@@ -68,96 +10,109 @@ docker-compose.override.yml
 .settings/
 .classpath
 
-# ===================
 # 操作系统
-# ===================
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# ===================
-# 临时文件
-# ===================
+# Go 二进制、依赖和本地工作区
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+vendor/
+/backend/bin/
+/backend/server
+/backend/sub2api
+/backend/main
+/backend/cmd/server/server
+__debug_bin*
+.gocache/
+.gocache-temp/
+.gomodcache/
+.gopath/
+go.work
+go.work.sum
+
+# Node.js / Vue / Vite
+node_modules/
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+vite.config.js.timestamp-*
+.eslintcache
+.vite/
+
+# 构建产物和测试覆盖率
+build/
+dist/
+release/
+coverage/
+*.out
+coverage.html
+/output/
+
+# Go embed 需要保留占位文件，其余前端构建产物忽略
+!/backend/internal/web/dist/
+/backend/internal/web/dist/*
+!/backend/internal/web/dist/.keep
+
+# 本地环境和服务配置
+.env
+.env.*
+*.env
+*.local
+!.env.example
+/backend/config.yaml
+/deploy/config.yaml
+/backend/.installed
+docker-compose.override.yml
+
+# 运行数据、日志和数据库文件
+/data/
+/backend/data/
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 缓存、临时文件和本地测试工作区
+.cache/
 tmp/
 temp/
 *.tmp
 *.temp
-*.log
 *.bak
-.cache/
+*.backup
 .dev/
-.serena/
+.test/
+.local-tests/
+tiktoken_cache/
 
-# ===================
-# 构建产物
-# ===================
-dist/
-build/
-release/
-
-# 后端嵌入的前端构建产物
-# Keep a placeholder file so `//go:embed all:dist` always has a match in CI/lint,
-# while still ignoring generated frontend build outputs.
-backend/internal/web/dist/
-!backend/internal/web/dist/
-backend/internal/web/dist/*
-!backend/internal/web/dist/.keep
-
-# 后端运行时缓存数据
-backend/data/
-
-# ===================
-# 本地配置文件（包含敏感信息）
-# ===================
-backend/config.yaml
-deploy/config.yaml
-backend/.installed
-
-# ===================
-# 其他
-# ===================
-tests
-!deploy/tests/
-!deploy/tests/**
-CLAUDE.md
-.claude
-scripts
-!backend/scripts/
-!backend/scripts/resolve-version.sh
-.code-review-state
-#openspec/
-code-reviews/
-AGENTS.md
-backend/cmd/server/server
-deploy/docker-compose.override.yml
-.gocache/
-vite.config.js
-docs/*
-!docs/PAYMENT.md
-!docs/PAYMENT_CN.md
-!docs/ADMIN_PAYMENT_INTEGRATION_API.md
-!docs/ASYNC_IMAGE_TASKS.md
-!docs/BATCH_IMAGE_MVP.md
-!docs/COMPOSITE_GROUPS.md
-!docs/PLUGIN_DEVELOPMENT.md
-!docs/channel-monitor-v2-safe-defaults.md
-!docs/codex-credits.md
-!docs/legal/
-!docs/legal/*.md
-!docs/screenshots/
-docs/screenshots/*
-!docs/screenshots/mobile-account-actions-menu.png
-!docs/screenshots/codex-referral-dialog.png
-!docs/screenshots/codex-referral-success.png
-.serena/
+# 本地工具配置和工作记录
+.claude/
 .codex/
-frontend/coverage/
-aicodex
-output/
+.cursor/
+.serena/
 .codegraph/
-issues/
+.playwright-mcp/
+skills-lock.json
+.code-review-state
+/plans/
+/docs-local/
+/code-reviews/
+/issues/
+/aicodex/
 
-# Vitest / Vite cache at repo root
-.vite/
-# 本地闭源插件开发目录及构建产物不进入 Sub2API 仓库
+# 本地闭源插件开发目录及构建产物
 /plugins/
+
+# docs/、scripts/、tests/ 和开发规范默认纳入版本管理
