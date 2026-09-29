@@ -77,6 +77,15 @@
 - 生产发布**必须**可追溯到定制版本、上游基线和完整 commit；不得将持续变化的 `upstream/main` 或 `latest` 作为唯一发布标识。
 - **应该**至少每周检查上游、逐次评估正式 Release，并及时评估安全修复。紧急补丁可在 `hotfix/*` 精确 cherry-pick，必须记录来源、验证并后续完成正常同步；不得以长期零散 cherry-pick 替代上游合并。定制版本推荐 `<上游版本>-custom.<修订号>`。
 
+### 3.1 GitHub 操作约束
+
+- 操作远端前**必须**检查 `git status --short --branch`、`git remote -v` 和目标分支，确认工作区改动来源、`main` 跟踪自己的 `origin/main`，且 `upstream` 是只拉取的官方远端。**禁止**向 `upstream` 推送；远端地址或 push URL 与预期不符时，先查明原因再操作。
+- 开发和同步**必须**从更新后的 `main` 创建独立分支；更新本地 `main` 使用 `git pull --ff-only origin main`。一项需求使用一个 `feature/*`、`fix/*` 或 `hotfix/*` 分支，一次官方升级使用一个 `sync/upstream-*` 分支。**禁止**直接在 `main` 开发、直接推送分支内容覆盖 `origin/main`，或对共享、联测、已被引用或已部署的分支随意 rebase；只有未共享的个人短期分支可以 rebase。
+- 向自己的 Fork 推送工作分支后，**必须**在 GitHub 创建目标为 `main` 的 PR，完成适用测试、CI 和评审后再合并；**禁止**跳过这些门禁把同步分支直接推成 `main`。普通 PR 的说明按 §18 执行；上游同步 PR **还必须**记录上游起止 commit、重要变化、冲突文件及解决原则、迁移与配置变化、实际测试结果、生产升级和回滚步骤。
+- 合并冲突**必须**逐文件理解并解决，逐处复核 `rerere` 自动复用结果；**禁止**批量选用全部 `ours` 或 `theirs`。同步完成并确认 GitHub PR 已合入后，才可删除同步分支；若本地 Git 提示分支未合并，先核对 PR 合并方式和提交内容，**禁止**直接用 `git branch -D` 掩盖差异。功能分支也应在确认不再需要后删除。
+- 已推送或部署的错误提交**必须**通过新的修复或回滚提交处理，并评估数据库兼容性；**禁止**以 `git reset --hard upstream/main`、强制推送 `origin/main`、删除 Fork 重复制代码或整目录覆盖定制代码代替正常同步。执行 `git reset --hard`、`git clean -fd` 等清理命令前必须确认文件来源和影响，保留用户已有改动。
+- 发布 tag **必须**基于已合并、已验证的定制 `main` commit 创建并推送到 `origin`，记录定制版本、完整 SHA、上游 tag/commit、迁移与配置状态、镜像 digest、验证结果及回滚目标；**禁止**把不断变化的 `upstream/main` 或 `latest` 当作唯一发布标识。
+
 ## 4. 架构、分层与所有权
 
 技术栈：Go + Gin + Ent + Wire，业务持久化使用 PostgreSQL，Redis 承担缓存、限流等能力；前端使用 Vue 3 + TypeScript + Vue Router + Pinia + Vite + Tailwind CSS 3 + vue-i18n，包管理器为 pnpm。
