@@ -95,10 +95,14 @@ func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
 			anthropicContentBlock
 		}{Text: b.Text, anthropicContentBlock: anthropicContentBlock(b)})
 	case "thinking":
+		// Anthropic always sends `signature` on thinking blocks (empty on
+		// content_block_start); strict clients such as Grok Build reject the
+		// block with "missing field `signature`" when the key is absent.
 		return json.Marshal(struct {
-			Thinking string `json:"thinking"`
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
 			anthropicContentBlock
-		}{Thinking: b.Thinking, anthropicContentBlock: anthropicContentBlock(b)})
+		}{Thinking: b.Thinking, Signature: b.Signature, anthropicContentBlock: anthropicContentBlock(b)})
 	default:
 		return json.Marshal(base)
 	}
@@ -312,8 +316,9 @@ func (i *ResponsesInputItem) UnmarshalJSON(data []byte) error {
 // ResponsesContentPart is a typed content part in a Responses message.
 type ResponsesContentPart struct {
 	PromptCacheBreakpoint json.RawMessage `json:"prompt_cache_breakpoint,omitempty"`
-	Type                  string          `json:"type"` // "input_text" | "output_text" | "input_image" | "input_file"
+	Type                  string          `json:"type"` // "input_text" | "output_text" | "refusal" | "input_image" | "input_file"
 	Text                  string          `json:"text,omitempty"`
+	Refusal               string          `json:"refusal,omitempty"`   // type=refusal
 	ImageURL              string          `json:"image_url,omitempty"` // data URI for input_image
 
 	// input_file fields.
@@ -591,6 +596,50 @@ type ResponsesInputTokensDetails struct {
 	AudioTokens         int `json:"audio_tokens,omitempty"`
 	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 	CacheWriteTokens    int `json:"cache_write_tokens,omitempty"`
+	// CachedTokensPresent preserves an explicitly reported zero. The wire
+	// field remains optional: a false value means the upstream did not report
+	// cached_tokens, while true means the value (including zero) was present.
+	CachedTokensPresent bool `json:"-"`
+}
+
+// UnmarshalJSON records cached_tokens presence separately from its integer
+// value so a reported cache miss is not collapsed into an absent breakdown.
+func (d *ResponsesInputTokensDetails) UnmarshalJSON(data []byte) error {
+	type detailsAlias ResponsesInputTokensDetails
+	var decoded detailsAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*d = ResponsesInputTokensDetails(decoded)
+	_, d.CachedTokensPresent = fields["cached_tokens"]
+	return nil
+}
+
+// MarshalJSON emits an explicit zero only when the source usage contained the
+// field (or a non-zero value is being constructed locally). Missing upstream
+// usage remains missing and is never inferred as a cache miss.
+func (d ResponsesInputTokensDetails) MarshalJSON() ([]byte, error) {
+	var cachedTokens *int
+	if d.CachedTokensPresent || d.CachedTokens != 0 {
+		value := d.CachedTokens
+		cachedTokens = &value
+	}
+	type details struct {
+		CachedTokens        *int `json:"cached_tokens,omitempty"`
+		AudioTokens         int  `json:"audio_tokens,omitempty"`
+		CacheCreationTokens int  `json:"cache_creation_tokens,omitempty"`
+		CacheWriteTokens    int  `json:"cache_write_tokens,omitempty"`
+	}
+	return json.Marshal(details{
+		CachedTokens:        cachedTokens,
+		AudioTokens:         d.AudioTokens,
+		CacheCreationTokens: d.CacheCreationTokens,
+		CacheWriteTokens:    d.CacheWriteTokens,
+	})
 }
 
 // ResponsesOutputTokensDetails breaks down output token usage.
@@ -690,6 +739,7 @@ type ChatStreamOptions struct {
 type ChatMessage struct {
 	Role             string          `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
 	Content          json.RawMessage `json:"content,omitempty"`
+	Refusal          string          `json:"refusal,omitempty"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
 	Reasoning        string          `json:"reasoning,omitempty"`
 	Name             string          `json:"name,omitempty"`
@@ -805,6 +855,55 @@ type ChatTokenDetails struct {
 	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
 	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
 	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
+	// CachedTokensPresent distinguishes an explicit cached_tokens: 0 from an
+	// upstream response that omitted the field altogether.
+	CachedTokensPresent bool `json:"-"`
+}
+
+// UnmarshalJSON records cached_tokens presence when Chat usage is accepted as
+// input, so a downstream Chat -> Responses bridge cannot lose an explicit zero.
+func (d *ChatTokenDetails) UnmarshalJSON(data []byte) error {
+	type detailsAlias ChatTokenDetails
+	var decoded detailsAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*d = ChatTokenDetails(decoded)
+	_, d.CachedTokensPresent = fields["cached_tokens"]
+	return nil
+}
+
+// MarshalJSON keeps an explicitly reported zero cached_tokens visible in the
+// Chat Completions response while retaining omitempty behavior for unknown
+// cache usage and unrelated token detail fields.
+func (d ChatTokenDetails) MarshalJSON() ([]byte, error) {
+	var cachedTokens *int
+	if d.CachedTokensPresent || d.CachedTokens != 0 {
+		value := d.CachedTokens
+		cachedTokens = &value
+	}
+	type details struct {
+		CachedTokens             *int `json:"cached_tokens,omitempty"`
+		AudioTokens              int  `json:"audio_tokens,omitempty"`
+		CacheCreationTokens      int  `json:"cache_creation_tokens,omitempty"`
+		CacheWriteTokens         int  `json:"cache_write_tokens,omitempty"`
+		ReasoningTokens          int  `json:"reasoning_tokens,omitempty"`
+		AcceptedPredictionTokens int  `json:"accepted_prediction_tokens,omitempty"`
+		RejectedPredictionTokens int  `json:"rejected_prediction_tokens,omitempty"`
+	}
+	return json.Marshal(details{
+		CachedTokens:             cachedTokens,
+		AudioTokens:              d.AudioTokens,
+		CacheCreationTokens:      d.CacheCreationTokens,
+		CacheWriteTokens:         d.CacheWriteTokens,
+		ReasoningTokens:          d.ReasoningTokens,
+		AcceptedPredictionTokens: d.AcceptedPredictionTokens,
+		RejectedPredictionTokens: d.RejectedPredictionTokens,
+	})
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.
@@ -830,6 +929,7 @@ type ChatChunkChoice struct {
 type ChatDelta struct {
 	Role             string         `json:"role,omitempty"`
 	Content          *string        `json:"content,omitempty"` // pointer: omit when not present, null vs "" matters
+	Refusal          *string        `json:"refusal,omitempty"`
 	ReasoningContent *string        `json:"reasoning_content,omitempty"`
 	Reasoning        *string        `json:"reasoning,omitempty"`
 	ToolCalls        []ChatToolCall `json:"tool_calls,omitempty"`

@@ -29,7 +29,8 @@
 | [DEV_GUIDE.md](../DEV_GUIDE.md) | 开发环境、工具链和常见问题；包含历史 Windows 环境示例，非统一部署配置，差异见 §10。 |
 | [数据库迁移说明](../backend/migrations/README.md) | SQL 文件命名和校验和；实际执行器是 `backend/internal/repository/migrations_runner.go`，旧命令差异见 §10。 |
 | [COMPOSITE_GROUPS.md](COMPOSITE_GROUPS.md) | 组合分组与路由规则；实现入口 `composite_route_resolver.go`，当前账号归属分支见 §4.3。 |
-| [OpenAI 契约兼容性方案](SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md) | 2026-09-29 代码复核版：缓存身份与 usage 已有实现；stop、token 上限和工具选择的剩余缺口、分支边界与后续方案。文档完成不代表代码实施或真实上游验收完成。 |
+| [OpenAI 契约兼容性方案](SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md) | v3.1 / 2026-10-02，基于 `b735bd4b47bff5a9f2382e672632f8bc7dd70795` 加未提交实施：约束策略、原值转换、两条 Anthropic 桥及文本 stop 接线/有限收尾；§1.5 区分本地通过与剩余上游检查门。C1 多轮缓存按用户确认解决；不支持并拒绝不计原成功用例通过。 |
+| [cached_tokens 缺失修复方案](SUB2API_CACHED_TOKENS_PRESENCE_REMEDIATION.md) | Responses → Chat usage 的 `cached_tokens` presence 保留；明确显式零、非零和真正缺失的区别、计费不变量、回归测试与重建部署后的 CC002 复测要求。 |
 | [ASYNC_IMAGE_TASKS.md](ASYNC_IMAGE_TASKS.md) | OpenAI/Grok 异步图片、对象存储、轮询和所有权；对应 `image_task_handler.go`、`service/image_task.go`。 |
 | [BATCH_IMAGE_MVP.md](BATCH_IMAGE_MVP.md) | Gemini API/Vertex 批量图片、队列、冻结款、下载/清理；对应 `service/batch_image*.go`。 |
 | [seedance-api.md](seedance-api.md) | Ark 原生视频接口与轮询结算；对应 `handler/seedance.go`、`service/seedance.go`。 |
@@ -39,6 +40,7 @@
 | [插件开发](../backend/pkg/pluginapi/docs/development.md)、[UI Bridge](../backend/pkg/pluginapi/docs/ui-bridge.md)、[包格式](../backend/pkg/pluginapi/docs/package-format.md)、[安全边界](../backend/pkg/pluginapi/docs/security.md) | 插件详细契约；宿主实现 `service/plugin_*.go`。 |
 | [渠道监控默认值](channel-monitor-v2-safe-defaults.md) | V1/V2、低负载历史回填与错误去重；对应 `service/channel_monitor_v2_aggregator.go` 及 repository。 |
 | [部署说明](../deploy/README.md)、[Docker](../deploy/DOCKER.md)、[边缘安全](../deploy/EDGE_SECURITY.md) | 二进制/容器部署、代理和安全配置；对照 `deploy/` 脚本、Compose 与配置样例。 |
+| [本机源码与 IP HTTPS 部署](LOCAL_SOURCE_HTTPS_DEPLOYMENT.md) | 当前工作区 embed 源码编译与原生进程部署；2026-10-02 已运行 `https://127.0.0.1:8443`，验证前端、登录、鉴权及停止/重启。使用独立 PostgreSQL/Redis 与专用 CA；未修改系统信任，Docker 集成与真实上游未验收，非生产发布结论。 |
 | [中文合规正文](legal/admin-compliance.zh.md)、[英文合规正文](legal/admin-compliance.en.md) | 管理控制台实际展示内容，属于运行资源；对应 `middleware/admin_compliance.go` 及前端合规状态。 |
 | [模型价格资源](../backend/resources/model-pricing/README.md) | 定价数据来源与维护；运行时 `service/pricing_service.go`、`model_pricing_resolver.go`。 |
 | [前端路由](../frontend/src/router/README.md)、[stores](../frontend/src/stores/README.md)、[公共组件](../frontend/src/components/common/README.md)、[布局](../frontend/src/components/layout/README.md)、[认证页](../frontend/src/views/auth/README.md) | 局部开发说明；方法签名、守卫和状态字段以当前 TypeScript/Vue 实现为准。 |
@@ -163,6 +165,8 @@ flowchart TD
 
 Handler 不只是参数转发：这里维护请求快照、平台归属、并发释放、失败账户集合、流是否已经输出以及用量提交。服务返回“错误 + 部分 usage”时也可能需要计费，不能仅在 `err == nil` 时记录。
 
+2026-10-02 复核：`handler/openai_chat_completions.go` 在计费资格检查之后调用 `gateway_inflight_reservation.go::reserveInflightBalance`，通过 handler defer 与 usage worker 的引用交接维护余额在途预留。新校验的早退、失败及取消路径不能漏释放，也不能在异步扣费更新前释放全部引用。预留是估算并发支出，不代表已扣费或实际输出 token 上限；开关、订阅与故障降级仍以该 helper 和 BillingCacheService 为准。
+
 ### 4.2 协议入口和平台实现
 
 | 客户端入口 | 主要 handler / service（相对 `backend/internal/`） |
@@ -190,6 +194,8 @@ Handler 不只是参数转发：这里维护请求快照、平台归属、并发
 
 一次调用中必须区分客户端模型、路由改写模型、账户上游模型和计费模型。Composite 决策中的具体平台还进入配额、渠道映射、账单和 Ops；不要把字符串 `composite` 当作实际提供方。
 
+2026-10-02 复核：`openai_gateway_scheduling.go::openAICompatibleAccountEligibilityFailureReasonBeforeProfit` 和 `openai_account_scheduler.go` 对 account_model 来源路由检查账户是否显式拥有公共模型映射，不拥有时不得因优先级、粘性或传输能力而选中。参数兼容修复与 fallback 必须保留该所有权约束。
+
 ### 4.4 请求构造、转换、出站和流
 
 | 要改的行为 | 优先阅读的实现 |
@@ -206,6 +212,15 @@ Handler 不只是参数转发：这里维护请求快照、平台归属、并发
 不是所有请求都先转换成统一 DTO：透传、原生 Anthropic、Responses/Chat fallback 和各平台兼容分支各有边界。修复字段时沿“入站解析 → 分支选择 → 实际出站 body → 响应转换 → usage”追踪，避免只改未被调用的转换器。
 
 流式/重试的关键验证：事件顺序、工具调用关联、结束标记、usage 缺失/中断、客户端取消、首输出超时；已产生下游可见输出后不能盲目换账户重放。连接是否已发送、是否已输出和业务是否可重复是不同条件。
+
+OpenAI 契约修订的当前边界（2026-10-02 复核）：
+
+- Anthropic Chat 转换有两个入口：`service/openai_gateway_chat_completions_anthropic_native.go` 的 CN/OpenCode 原生桥，以及 `service/gateway_forward_as_chat_completions.go` 的 Anthropic 平台桥。二者都经过 Chat → Responses → Anthropic，恢复 stop/max 时必须分别接线并检查最终出站 body。
+- `pkg/apicompat/chat_contract.go` 在 strict 模式保留参数 presence、校验工具引用及 max 优先级；`service/openai_chat_contract.go` 按每次实际分支重新判断。`ChatCompletionsToResponsesWithOptions` 可保留正数小上限，旧 wrapper 仍有 128 floor。Codex 仍删除上限，strict 在删除前拒绝显式 max，不将拒绝当成执行成功。既有 incomplete/max_output_tokens → length 映射保持不变。
+- `service/openai_chat_text_contract.go` 将请求级扫描器接入主 Chat JSON/SSE，限定 strict/text 单 choice 普通文本等场景；raw 原生保留 stop，两条 Anthropic 桥恢复 stop/max 后检查最终请求体。配置默认 legacy/reject/30，修改后须重启；默认部署不启用模拟。意外工具/音频/refusal 输出作为错误，不伪装成成功。
+- `pkg/apicompat/types.go`、`responses_to_chatcompletions.go` 和 `chatcompletions_responses_bridge.go` 保留 `cached_tokens` 的 JSON key presence；上游明确的 `cached_tokens: 0` 继续出现在 Chat JSON/SSE，真正缺失仍保持缺失，不改变 `OpenAIUsage` 数值或计费。
+- 最新模型校验可能在本地产生 400：GPT-6.1 Sol 禁用推理/Chat-only 工具请求、Claude 5.5 强制工具选择等；不能将所有 tools 400 归为上游 schema 错误。以实际映射模型及出站分支复现。
+- `gateway_usage_billing.go::detachUpstreamContext` 使用 `context.WithoutCancel`；间隔超时不能限制持续心跳。本次文本控制器从命中或断连开始独立绝对收尾期限，超时取消并关闭 body；timer 不持有 Gin、不写客户端。保留真实 usage，缺失不补造；文本模式禁用失败/静默拒绝重放，不宣称所有流都有绝对期限。预留和计费仍沿既有 handler/worker 交接，真实上游费用验收尚未完成。
 
 ## 5. 持久化、缓存与计费
 
@@ -232,6 +247,8 @@ Handler 不只是参数转发：这里维护请求快照、平台归属、并发
 5. `repository/usage_billing_repo.go::Apply` 在一个事务中领取 `(request_id, api_key_id)` 去重键并应用金额/配额副作用，重复指纹不重复执行，冲突指纹报错；随后处理用量日志与缓存更新等。**原子扣费不代表所有异步日志和缓存写入都在同一事务内。**
 
 修改价格或计费字段须同步：请求模型/计费模型、前端展示与类型、价格来源、历史统计、金额量化、订阅与余额路径、Key 配额、缓存失效、重复请求和失败恢复。不得把 `gateway_usage_billing.go` 的 legacy fallback 当成生产统一事务主路径。
+
+缓存验证还应独立核对上游 usage、客户端回程和账务桶。`pkg/apicompat/responses_to_chatcompletions.go::promptDetailsFromResponses` 已通过 presence 标记保留上游显式零；下游字段缺失仍表示上游未报告，不能填充为 0。`service/openai_gateway_chat_completions_anthropic_native.go` 当前按收到的 usage 存在性转发并归一化，不再仅依赖客户端 include_usage；presence 修复不证明用户反馈的低缓存命中率已经解决。复测口径见兼容性方案 §3 和 [cached_tokens 缺失修复方案](SUB2API_CACHED_TOKENS_PRESENCE_REMEDIATION.md)。
 
 ### 5.3 缓存与数据库演进
 
@@ -383,6 +400,8 @@ Vite 默认开发端口 `3000`、代理目标 `http://localhost:8080`，可由 `
 
 根 `make build` 按现有 Makefile 分别构建后端与前端，后端目标没有 `-tags embed`，因此**不是完整嵌入发行构建**。本地上例用于验证嵌入形态；正式版本/commit/date/BuildType 注入以 Dockerfile、发布 workflow 和 `backend/scripts/resolve-version.sh` 为准。
 
+本机无域名 HTTPS 部署流程见 [专门文档](LOCAL_SOURCE_HTTPS_DEPLOYMENT.md)。目标为 `https://127.0.0.1:8443` → 本机代理 → 回环 HTTP 应用；证书 SAN 必须包含 IP。本工作区的契约代码仍处于未完成状态：2026-10-02 实际构建发现 stop 文本模拟类型缺失、流处理调用参数不匹配，不能部署当前源码；不通过切换旧提交或使用发布二进制替代本次要求。
+
 ### 9.2 测试入口及真实覆盖范围
 
 | 命令 | 覆盖范围 |
@@ -439,6 +458,18 @@ make check-architecture-index
 
 <!-- architecture-change-index:start -->
 
+### 2026-10-03 · ARCH-003 · 增加本地启动脚本
+
+- 原因与行为：新增仓库根目录 `start.sh`，从项目根目录启动 `backend/bin/sub2api`，保证配置文件按项目目录查找，并将命令行参数透传给服务；可通过 `SUB2API_BIN` 指定其他二进制路径。
+- 关联章节：§3.1 启动和退出、§9.1 构建与运行；未找到或不可执行的二进制时给出先执行 `./build.sh` 的提示并退出。
+- 验证：执行 `bash -n start.sh`，并用临时目录验证缺少二进制时的错误处理。
+
+### 2026-10-03 · ARCH-002 · 增加一键完整嵌入编译脚本
+
+- 原因与行为：新增仓库根目录 `build.sh`，执行时按锁文件安装前端依赖、构建前端资源，并以 `embed` build tag 编译后端，使生成的 `backend/bin/sub2api` 包含前端页面。
+- 关联章节：§9.1 的完整嵌入构建流程；脚本支持通过 `VERSION`、`COMMIT`、`DATE`、`BUILD_TYPE` 和 `OUTPUT` 环境变量覆盖构建元数据或输出路径。
+- 验证：执行 `bash -n build.sh`，并运行脚本完成前端构建与后端编译。
+
 ### 2026-09-29 · ARCH-001 · 建立架构总览与强制索引门禁
 
 - 原因与行为：基于本地代码建立 §1–§10 总览、模块/前后端/领域入口、修改和验证指南；开发规范将任意代码改动同步本文设为强制要求。新增本地与 CI 路径覆盖检查，发布机器人同步版本时也留下索引。
@@ -457,5 +488,69 @@ make check-architecture-index
 - 原因与行为：旧方案沿用早期缓存、工具错误和单一 OAuth 路径假设；按 `b4a9452a68d494c85ee3a1da9bfc0128c2d1da9a` 核对后，将已有缓存派生/隔离/usage 能力转为回归项，撤销整响应缓存及伪造 token 用量设计，重新定义 stop、token 原值/不支持限制、工具选择校验的后续实施范围。
 - 文档路径：`docs/SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md`；本指南 §1.1 增加领域入口，关联 §4.3–§4.4、§5.2、§9。本次仅修改说明文档，未实现业务代码、配置或数据库变更。
 - 验证：两份文档共 **92 个本地链接**存在，Markdown 标题层级/代码围栏/尾空白检查通过；源码符号、现有测试入口和命令已核对；`git diff --check` 与 `make check-architecture-index` 通过（纯文档，0 个代码路径）。未运行 Go/前端业务测试、真实上游缓存命中或工具调用复测；方案中的后续验收保持未完成。
+
+### 2026-10-02 · DOC-OPENAI-CONTRACT-003 · 补齐契约方案关键逻辑与实施检查门
+
+- 原因与行为：按 `b735bd4b47bff5a9f2382e672632f8bc7dd70795` 更新 v3.0 方案，保留五项原始问题及历史统计，纠正没有证据的“缓存已解决”描述；补充当前模型限制、两条 Anthropic 桥、缓存 presence 限制、预留/计费交接与绝对收尾设计。新增接口、关键代码、错误/配置、测试样例及 P0–P5 逐项实施步骤均标记为拟议，未实现业务功能。
+- 文档路径：`docs/SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md`、`docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md`；关联本指南 §1.1、§4.1、§4.3–§4.4、§5.2，领域方案 §1–§10。
+- 验收原则：受支持路径必须验证真实行为；不支持并明确拒绝仅确认能力边界，不计原成功响应测试通过；真实上游未复测的缓存和工具问题保持待验证。
+- 验证：两份文档 **93 个本地链接**存在，标题层级、代码围栏、表格列数及重复标题检查通过；**35 个现有源码函数声明**和 Makefile 命令入口核对通过，6 个拟新增文件确认尚不存在；**9 段 Go 示例语法检查**、3 段 JSON 解析、2 段 Bash 语法检查通过（Go 片段按需包装后仅检查语法，未编译、未执行业务）。`git diff --check`、`make check-architecture-index` 通过（纯文档，0 个代码路径）。未运行 Go/前端业务测试、真实上游调用或部署演练；不创建代码、配置、迁移、前端或缓存设施。
+
+### 2026-10-02 · OPENAI-CONTRACT-WIP-004 · 记录部署前发现的未完成契约工作区
+
+- 状态与来源：以下业务改动在本次源码部署任务开始前已存在，属于前序方案实施的未完成工作。本次保留它们，不增加空实现、删除接线或回退到旧提交来绕过编译错误；记录路径不是验收通过或授权发布。
+- 参数解析与转换：`backend/internal/pkg/apicompat/chat_contract.go`、`backend/internal/pkg/apicompat/chat_stop_scanner.go`、`backend/internal/pkg/apicompat/chatcompletions_to_responses.go`；已有解析器、扫描器及转换选项草稿，尚未完成回归验证。
+- 配置：`backend/internal/config/config.go`、`backend/internal/config/openai_chat_contract.go`；已有 legacy/strict、stop 模式及收尾期限字段/校验草稿，不代表全部模式可运行。
+- Handler：`backend/internal/handler/openai_chat_completions.go`、`backend/internal/handler/gateway_handler_chat_completions.go`；已有契约解析、预留估算接线改动，生命周期与计费回归尚未完成。
+- Service：`backend/internal/service/openai_chat_contract.go`、`backend/internal/service/openai_gateway_chat_completions.go`、`backend/internal/service/openai_gateway_chat_completions_raw.go`、`backend/internal/service/openai_gateway_chat_completions_anthropic_native.go`、`backend/internal/service/gateway_forward_as_chat_completions.go`；已有分支校验和字段映射草稿，主 Chat 流式/缓冲路径引用未实现的 `chatTextContract`、`newChatTextContract`，调用参数与被调函数不匹配。
+- 验证：以 Go 1.27.0 对当前工作区执行普通后端构建，出现上述 4 处错误，退出码 1；没有可运行产物，没有完成业务或上游验收。解除阻断须完成原方案实现及开发规范要求的测试，不能把本条文件级登记当作功能通过。
+
+### 2026-10-02 · LOCAL-HTTPS-001 · 本机源码部署检查与无域名 HTTPS 操作说明
+
+- 文档路径：`docs/LOCAL_SOURCE_HTTPS_DEPLOYMENT.md`、`docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md`；关联 §1.1、§9.1、开发规范 §16–§19。本次只修改说明文档，不修改前述业务代码或仓库部署默认配置。
+- 已执行：当前源码构建失败；用单次 GOPROXY 切换完成后端依赖下载并进入编译；前端锁定依赖安装未完成，后端失败后停止。生成专用本地 CA 和 `127.0.0.1` SAN 证书，OpenSSL 证书链校验通过，文件位于被忽略的 `.dev/local-https/`，未写入系统信任，私钥不进入版本管理。
+- 未执行：未安装/启动 PostgreSQL 或 Caddy，未初始化数据库，未启动应用，未完成 HTTPS、页面、真实上游或业务验收。文档中的后续命令保留“待执行”状态，不宣称部署成功。
+- 文档验证：两份文档共 67 个本地链接存在，16 段 Bash 示例语法及代码围栏闭合检查通过；`git diff --check`、`make check-architecture-index` 通过（12 个已有代码路径按 WIP 状态登记）。未暂存/提交文件，未运行暂存区检查；索引通过不改变源码编译失败的阻断结论。
+
+### 2026-10-02 · OPENAI-CONTRACT-005 · 完成契约接线并解除源码编译阻断
+
+- 原因与行为：接续 WIP-004，补齐真实文本控制器及 JSON/SSE 接线、有界 drain、真实 usage 与失败元数据；严格参数校验在可能放宽约束的转换前执行，分支变化重新判断，legacy 保持旧行为。本地参数错误不作为账号故障惩罚；不改缓存算法或计费价格。用户确认多轮缓存升级后已解决，C1 转为回归，不外推 C2 或真实上游工具/上限已通过。
+- 协议及扫描器：`backend/internal/pkg/apicompat/chat_contract.go`、`backend/internal/pkg/apicompat/chat_stop_scanner.go`、`backend/internal/pkg/apicompat/chatcompletions_to_responses.go`、`backend/internal/pkg/apicompat/chat_contract_test.go`。
+- 配置与测试：`backend/internal/config/config.go`、`backend/internal/config/openai_chat_contract.go`、`backend/internal/config/openai_chat_contract_test.go`；默认 legacy/reject/30，Viper 环境读取、枚举及范围校验有实际测试。
+- Handler 与预留估算接线：`backend/internal/handler/openai_chat_completions.go`、`backend/internal/handler/gateway_handler_chat_completions.go`。
+- 分支策略及响应生命周期：`backend/internal/service/openai_chat_contract.go`、`backend/internal/service/openai_chat_text_contract.go`、`backend/internal/service/openai_gateway_chat_completions.go`、`backend/internal/service/openai_gateway_messages.go`、`backend/internal/service/openai_gateway_chat_completions_raw.go`、`backend/internal/service/openai_gateway_chat_completions_anthropic_native.go`、`backend/internal/service/gateway_forward_as_chat_completions.go`、`backend/internal/service/openai_chat_text_contract_test.go`。可选 observer/可变参数保留旧调用方；两条 Anthropic 桥分别接线，最终 body 不满足约束则拒绝。
+- 部署配置：`deploy/config.example.yaml`、`deploy/.env.example`、`deploy/docker-compose.yml`、`deploy/docker-compose.local.yml`、`deploy/docker-compose.dev.yml`、`deploy/docker-compose.standalone.yml`，同步三个环境变量，默认不启用新语义。
+- 关联：本指南 §4.3–§4.4、§5.2、§9，[契约方案](SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md) §1.5/§8–§10。本地 Go unit、普通 tests+lint、定向 tests/race、普通/嵌入 build 通过；前端 critical 308 测试及构建通过。repository integration 因无 Docker 自动跳过，不计通过；真实上游、完整费用及幂等结算验收保留待办，不宣布生产可发布。
+
+### 2026-10-02 · LOCAL-HTTPS-002 · 当前源码的原生进程 IP HTTPS 部署
+
+- 原因与行为：接续 LOCAL-HTTPS-001，当前源码编译阻断已解决；本机无 Docker，使用源码构建的 embed Sub2API、Caddy、PostgreSQL 18.6 及已有 Redis 命令，在 `.dev/local-https/` 下创建隔离数据。仅监听回环 IP，以显式证书提供 HTTPS；不修改系统 CA 信任、不安装开机启动、不覆盖其他实例。管理员密码不打印，未代替用户接受合规声明。
+- 管理脚本：`deploy/local-source-https.mjs`；预检、空目录初始化、进程身份记录、顺序启停、健康/TLS 验证、私有凭据与日志。配置环境只影响新启动进程；启动失败保留本实例组件/数据，可重试或停止。
+- 脚本测试：`deploy/tests/local-source-https-test.mjs`、`deploy/tests/local-source-https-smoke.mjs`；前者无服务副作用，后者显式读取本机私有凭据检查 HTTPS/登录，不调用上游。
+- embed 验收修正：`backend/internal/web/embed_test.go`；旧 PNG 已由 SVG 替换，测试使用现存 SVG，增加内容断言并保留缓存检查，不修改产品静态服务逻辑。
+- 文档：`docs/LOCAL_SOURCE_HTTPS_DEPLOYMENT.md`、`docs/SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md`、本指南 §1.1/§4.4/§9。历史失败条目保留追溯，本条覆盖当前状态。
+- 实测：配置/语法测试、Compose gateway/security 文本检查通过；HTTPS health、UI/JS/SVG、管理员登录/合规状态成功，未授权 models 为 401；四个 TCP 端口只监听 127.0.0.1；停止/启动后 smoke 再次通过，291 条迁移记录及 pg_trgm 存在。Compose simple-mode-env 因缺 Docker 无法执行；未做浏览器视觉、系统信任、生产备份恢复或真实上游验收。详见部署文档的结果与限制。
+- 文档 Gate：三份文档的 103 个本地链接、13 段 Bash 语法及围栏检查通过，18 个变动 Go 文件 gofmt 干净；`make check-architecture-index` 覆盖 27 个代码路径，`git diff --check` 通过。未暂存/提交/推送，暂存区和 CI 门禁未执行。
+
+### 2026-10-03 · OPENAI-CONTRACT-006 · 修复未版本化 Chat 别名的前端拦截并补真实验收记录
+
+- 原因与行为：嵌入式前端中间件此前未绕过 `backend/internal/web/embed_on.go` 中的 `/chat/completions`，导致已注册的 OpenAI Chat 别名在真实服务上被 SPA fallback 返回 HTML；新增精确 bypass，并在 `backend/internal/web/embed_test.go` 增加回归断言。重建 embed 二进制后，别名返回 JSON Chat Completions 响应。
+- 测试资产：`test/README.md`、`test/TEST_REPORT.md`、`test/ISSUE_REGRESSION_REPORT.md`、`test/ISSUE_REGRESSION_REPORT_GPT56_TERRA.md`、`test/openai_contract_http_test.py`、`test/issue_regression_cases.py`、`test/run_local_regression.sh`；脱敏结果记录在 `test/issue-regression-report.json`、`test/issue-regression-report-gpt-5.6-terra.json`、`test/openai-contract-report.json`、`test/openai-contract-report-strict-text.json`、`test/openai-contract-report-strict-text-after-alias.json`，本地回归输出在 `test/local-regression.log`。
+- 实测：重建后的 strict/text 真实黑盒 13/13 通过；legacy/reject 作为默认回滚配置恢复运行。CC002 修复后 JSON/SSE 各 30/30 HTTP 200，usage coverage 均 100%，无缺失 `cached_tokens`，SSE 每条一个 `[DONE]`；warm request hit rate 均 28/29（96.55%），token hit rate 约 64.44%/64.39%，低于 80% 工程目标的部分归因于上游缓存覆盖率，不再是字段缺失。legacy stop/max 旧行为和 Codex max 明确拒绝仍按真实能力记录。
+- 验证：相关 `apicompat` 与 service 定向测试、重建服务后的 CC002 JSON/SSE 复测、`make check-architecture-index`、`git diff --check`、embed/web/route 定向测试及本机 HTTPS health 通过。`make -C backend test-unit` 被既有 service 外部账户/OAuth 错误场景阻塞，不能宣称 Go 全量 Gate 通过；repository integration 仍受缺 Docker 限制，生产灰度和费用/幂等上游验收不宣称完成。
+
+### 2026-10-03 · OPENAI-CONTRACT-007 · 保留 `cached_tokens` 显式零 presence
+
+- 原因与行为：CC002 修复前的 JSON/SSE 样本中，成功响应偶发缺少 `usage.prompt_tokens_details.cached_tokens`。`ResponsesInputTokensDetails` 原先把显式 `cached_tokens: 0` 与字段缺失都解码为零，`promptDetailsFromResponses` 和 `omitempty` 随后丢弃该字段；新增 presence 标记和自定义 JSON 编解码，仅恢复上游明确存在的零值，不推断真正缺失字段。
+- 代码路径：`backend/internal/pkg/apicompat/types.go`、`backend/internal/pkg/apicompat/responses_to_chatcompletions.go`、`backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`；回归测试：`backend/internal/pkg/apicompat/chatcompletions_responses_test.go`。覆盖 Responses → Chat JSON、Responses SSE 终态、Chat → Responses round-trip，以及缺失字段不被伪造。
+- 文档路径：`docs/SUB2API_CACHED_TOKENS_PRESENCE_REMEDIATION.md`、`docs/SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md`、`docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md`；关联 §4.4、§5.2、§9.2 和 OpenAI 契约方案 §3/§9/§10。
+- 验证：`(cd backend && go test ./internal/pkg/apicompat -count=1)` 通过；`(cd backend && go test ./internal/service -run 'Test(CopyOpenAIUsage|.*CachedTokens|.*Usage)' -count=1)` 通过；重建服务后的 CC002 JSON/SSE 各 30/30 HTTP 200、usage coverage 100%，无缺失 `cached_tokens`，SSE 每条一个 `[DONE]`。warm request hit rate 均 96.55%，token hit rate 约 64.4%，低于 80% 工程目标的剩余部分是上游缓存覆盖率问题。不改变缓存 key、计费数值、数据库或配置。
+
+### 2026-10-03 · TEST-ASSETS-001 · 保留 CC001/CC002 黑盒测试资产
+
+- 原因与行为：工作区已有 CC001 多轮缓存和 CC002 重复 prompt-cache 的 runner、单元测试、忽略规则及脱敏 JSON 报告；这些文件用于复测缓存身份、JSON/SSE usage 和命中率统计，保留现有报告事实，不将报告中的未验证状态改写为通过。
+- 文件路径：`test/TC-CC-001-multiturn-prompt-cache/.gitignore`、`test/TC-CC-001-multiturn-prompt-cache/report-latest-json.json`、`test/TC-CC-001-multiturn-prompt-cache/report-latest.json`、`test/TC-CC-001-multiturn-prompt-cache/report-sse.json`、`test/TC-CC-001-multiturn-prompt-cache/report.json`、`test/TC-CC-001-multiturn-prompt-cache/run.py`、`test/TC-CC-001-multiturn-prompt-cache/test_cases.py`、`test/TC-CC-002-repeated-prompt-cache/.gitignore`、`test/TC-CC-002-repeated-prompt-cache/report.json`、`test/TC-CC-002-repeated-prompt-cache/run.py`、`test/TC-CC-002-repeated-prompt-cache/test_cases.py`。
+- 关联：§4.4 协议流与 usage、§5.2 缓存与计费、[OpenAI 契约方案](SUB2API_OPENAI_CONTRACT_COMPATIBILITY_TECHNICAL_PLAN.md) §3、[cached_tokens 修复方案](SUB2API_CACHED_TOKENS_PRESENCE_REMEDIATION.md)。
+- 验证与限制：CC002 runner 离线单元测试 4/4 通过；修复前真实报告记录 60 条 HTTP 200 请求和 3 条缺失 `cached_tokens`，修复后真实报告记录 JSON/SSE 各 30/30 HTTP 200、usage coverage 100% 和无缺失字段。报告不包含 API Key、prompt 或响应正文；token hit rate 约 64.4% 仍低于 80% 工程目标，需作为上游缓存命中覆盖率问题单独跟踪。
 
 <!-- architecture-change-index:end -->

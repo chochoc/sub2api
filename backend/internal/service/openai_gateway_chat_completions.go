@@ -110,88 +110,55 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 
 	// Cursor compatibility: some clients send a Responses-shaped body to the
-	// /v1/chat/completions URL. Detect it before adaptive routing so adaptive
+	// /v1/chat/completions URL. Detect it before protocol routing so adaptive
 	// accounts never forward the body unchanged to a Chat Completions endpoint.
 	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
-
-	// OpenCode Go：按模型原生协议分流（与 inbound 协议正交）。
-	// 规则未命中一律兜底 Chat Completions，只有显式 Responses 才走下方转换链。
-	if account.IsOpenCodeGo() {
-		mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
-		proto := openCodeGoNativeProtocol(account, mapped)
-		if proto != APIProtocolResponses {
-			if isResponsesShape {
-				if proto == APIProtocolAnthropic {
-					return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
-				}
-				var responsesReq apicompat.ResponsesRequest
-				if err := json.Unmarshal(body, &responsesReq); err != nil {
-					return nil, fmt.Errorf("parse responses-shaped chat completions request: %w", err)
-				}
-				chatReq, err := apicompat.ResponsesToChatCompletionsRequestWithOptions(
-					&responsesReq,
-					&apicompat.ResponsesToChatOptions{ReasoningContentByID: s.reasoningContentByID},
-				)
-				if err != nil {
-					return nil, fmt.Errorf("convert responses-shaped chat completions request: %w", err)
-				}
-				chatBody, err := json.Marshal(chatReq)
-				if err != nil {
-					return nil, fmt.Errorf("marshal converted chat completions request: %w", err)
-				}
-				return s.forwardAsRawChatCompletions(ctx, c, account, chatBody, defaultMappedModel)
-			}
-			if proto == APIProtocolAnthropic {
-				return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
-			}
-			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-		}
+	inbound := APIProtocolChatCompletions
+	if isResponsesShape {
+		inbound = APIProtocolResponses
 	}
+	// 按模型分流与 adaptive 账号按请求体形状处理 Responses 形状入站；其余账号
+	// 维持原样把请求体交给所选路径。
+	convertResponsesShape := isResponsesShape && (account.routesByModel() || account.IsAdaptiveAPIProtocol())
 
-	// 自适应账号的标准 Chat Completions 入站使用供应商原生 CC 端点。
-	// Responses 形状下，DeepSeek / Kimi 继续走下方原生 Responses 链；GLM
-	// 没有 Responses 端点，先转换成 Chat Completions 再直转。
-	if account.IsAdaptiveAPIProtocol() && !account.IsOpenCodeGo() {
-		if !isResponsesShape {
-			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。Anthropic 分流必须先于
+	// ShouldUseResponsesAPI：Anthropic 协议账号经 probe 落标
+	// openai_responses_supported=false，否则会命中 CC 直转。
+	routingModel := upstreamRoutingModel(account, body, defaultMappedModel)
+	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
+		return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
+	}
+	switch s.resolveUpstreamProtocolFor(ctx, account, inbound, routingModel) {
+	case APIProtocolAnthropic:
+		if convertResponsesShape {
+			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
 		}
-		if !account.SupportsNativeCNResponses() {
-			var responsesReq apicompat.ResponsesRequest
-			if err := json.Unmarshal(body, &responsesReq); err != nil {
-				return nil, fmt.Errorf("parse responses-shaped chat completions request: %w", err)
-			}
-			chatReq, err := apicompat.ResponsesToChatCompletionsRequestWithOptions(
-				&responsesReq,
-				&apicompat.ResponsesToChatOptions{ReasoningContentByID: s.reasoningContentByID},
-			)
+		// CC 入站经 CC→Responses→Anthropic 转换链直通供应商原生 Anthropic 端点。
+		return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
+	case APIProtocolChatCompletions:
+		if convertResponsesShape {
+			chatBody, err := s.convertResponsesShapedChatBody(body)
 			if err != nil {
-				return nil, fmt.Errorf("convert responses-shaped chat completions request: %w", err)
-			}
-			chatBody, err := json.Marshal(chatReq)
-			if err != nil {
-				return nil, fmt.Errorf("marshal converted chat completions request: %w", err)
+				return nil, err
 			}
 			return s.forwardAsRawChatCompletions(ctx, c, account, chatBody, defaultMappedModel)
 		}
-		// DeepSeek / Kimi 原生 Responses 请求继续走下方 Responses→Chat 回程转换。
-	}
-
-	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点，
-	// CC 入站请求经 CC→Responses→Anthropic 转换链直通该端点。必须先于
-	// ShouldUseResponsesAPI 分流：该类账号经 probe 落标
-	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
-	if account.IsAnthropicProtocol() {
-		return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
-	}
-
-	// 固定 chat_completions 的 CN 账号，以及强制或已探测确认不支持 Responses
-	// 的其他 APIKey 账号，均走 CC 直转。
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
+	// 上游为 Responses（含 adaptive 下 Responses 形状入站且供应商有原生
+	// Responses 端点）：走下方 Chat Completions ↔ Responses 转换链。
 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
 
 	startTime := time.Now()
+
+	branch := contractResponses
+	if account.UsesOpenAICodexProtocol() {
+		branch = contractCodex
+	}
+	contract, contractErr := prepareChatContract(s.cfg, c, body, branch)
+	if contractErr != nil {
+		return nil, contractErr
+	}
 
 	// 1. Parse Chat Completions request
 	var chatReq apicompat.ChatCompletionsRequest
@@ -271,7 +238,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		// Normal path: convert Chat Completions → Responses.
 		// ChatCompletionsToResponses always sets Stream=true (upstream always streams).
 		chatReq.Model = upstreamModel
-		responsesReq, err = apicompat.ChatCompletionsToResponses(&chatReq)
+		responsesReq, err = contract.convert(&chatReq)
 		if err != nil {
 			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 		}
@@ -377,7 +344,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// 6. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	cancelUpstream := func() {}
-	if clientStream {
+	if clientStream || contract.simulateStop {
 		upstreamCtx, cancelUpstream = context.WithCancel(upstreamCtx)
 	}
 	defer cancelUpstream()
@@ -421,7 +388,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			return s.forwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel, compatPromptCacheTenantIsolated)
 		}
 		if account.Type == AccountTypeAPIKey &&
-			!account.IsOpenCodeGo() &&
+			!account.routesByModel() &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
 			!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",
@@ -438,12 +405,17 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 
 	// 9. Handle normal response
+	var textContract *chatTextContract
+	if contract.simulateStop {
+		textContract = newChatTextContract(c.Request.Context(), resp.Body, cancelUpstream, contract.constraints.StopSequences, s.cfg.Gateway.OpenAIChatContract.DrainTimeoutSeconds)
+		defer textContract.close()
+	}
 	var result *OpenAIForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleChatStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, len(body))
+		result, handleErr = s.handleChatStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, len(body), textContract)
 	} else {
-		result, handleErr = s.handleChatBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
+		result, handleErr = s.handleChatBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, textContract)
 	}
 	stampOpenAIResponsesUpstreamEndpoint(c, result)
 
@@ -460,7 +432,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// 计费 tier 优先采用上游回显值；上游未回显时回退到最终出站 body（经过
 	// fast policy filter/force 之后）里的 tier，policy filter 删掉字段后不再
 	// 按原请求 Fast 计费。
-	if handleErr == nil && result != nil {
+	if result != nil {
 		if tier := resolvedOpenAIUpstreamServiceTier(c, extractOpenAIServiceTierFromBody(responsesBody)); tier != nil {
 			result.ServiceTier = tier
 		}
@@ -547,16 +519,28 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	billingModel string,
 	upstreamModel string,
 	startTime time.Time,
+	options ...*chatTextContract,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	textContract := firstChatTextContract(options)
+	partial := func(usage OpenAIUsage) *OpenAIForwardResult {
+		return &OpenAIForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, BillingModel: billingModel, UpstreamModel: upstreamModel, Duration: time.Since(startTime), UpstreamResponseModel: observedUpstreamResponseModel(c), UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c), UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c)}
+	}
 
-	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, c, "openai chat_completions buffered", requestID)
+	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, c, "openai chat_completions buffered", requestID, func(event *apicompat.ResponsesStreamEvent) error { return textContract.observe(event, true) })
 	if err != nil {
+		if textContract != nil {
+			writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Text stop response could not be completed")
+			return partial(usage), err
+		}
 		return nil, s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, err)
 	}
 
 	if finalResponse == nil {
 		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
+		if textContract != nil {
+			return partial(usage), fmt.Errorf("upstream stream ended without terminal event")
+		}
 		return nil, fmt.Errorf("upstream stream ended without terminal event")
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
@@ -586,7 +570,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
 		}
 		message := openAICompatFailedResponseMessage(finalResponse)
-		if openAIStreamFailedEventShouldFailover(payload, message) {
+		if textContract == nil && openAIStreamFailedEventShouldFailover(payload, message) {
 			return nil, s.newOpenAIStreamFailoverErrorWithModel(c, account, false, requestID, payload, message, upstreamModel, resp.Header)
 		}
 		message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payload, message)
@@ -600,9 +584,15 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 			}
 			MarkResponseCommitted(c)
 			writeChatCompletionsError(c, status, errType, errMsg)
+			if textContract != nil {
+				return partial(usage), fmt.Errorf("upstream response failed")
+			}
 			return nil, fmt.Errorf("upstream response failed (passthrough): %s", errMsg)
 		}
 		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", message)
+		if textContract != nil {
+			return partial(usage), fmt.Errorf("upstream response failed")
+		}
 		return nil, fmt.Errorf("upstream response failed: %s", message)
 	}
 	if strings.TrimSpace(finalResponse.Status) == "completed" {
@@ -619,6 +609,10 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	acc.SupplementResponseOutput(finalResponse)
 
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
+	if err := textContract.bufferedResponse(chatResp); err != nil {
+		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", err.Error())
+		return partial(usage), err
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -706,7 +700,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	upstreamModel string,
 	startTime time.Time,
 	requestBodyLen int,
+	options ...*chatTextContract,
 ) (*OpenAIForwardResult, error) {
+	textContract := firstChatTextContract(options)
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 
@@ -805,6 +801,18 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
 			}
 		}
+		if err := textContract.observe(&event, false); err != nil {
+			streamNonFailoverErr = err
+			if !clientDisconnected {
+				if !c.Writer.Written() {
+					writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", err.Error())
+				} else {
+					_, _ = fmt.Fprint(c.Writer, buildChatStreamErrorSSE("text_stop_error", err.Error()))
+					c.Writer.Flush()
+				}
+			}
+			return true
+		}
 		if strings.TrimSpace(event.Type) == "response.failed" || strings.TrimSpace(event.Type) == "error" {
 			payloadBytes := []byte(payload)
 			message := extractOpenAISSEErrorMessage(payloadBytes)
@@ -843,7 +851,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			if strings.TrimSpace(event.Type) == "error" {
 				shouldFailover = openAIStreamErrorEventShouldFailover(payloadBytes, message)
 			}
-			if !clientOutputStarted && shouldFailover {
+			if textContract == nil && !clientOutputStarted && shouldFailover {
 				streamFailoverErr = s.newOpenAIStreamFailoverErrorWithModel(c, account, false, requestID, payloadBytes, message, upstreamModel, resp.Header)
 				return true
 			}
@@ -884,7 +892,12 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return true
 		}
 
-		chunks := apicompat.ResponsesEventToChatChunks(&event, state)
+		var chunks []apicompat.ChatCompletionsChunk
+		if textContract != nil {
+			chunks = textContract.chunks(&event, state)
+		} else {
+			chunks = apicompat.ResponsesEventToChatChunks(&event, state)
+		}
 		if !clientDisconnected {
 			for _, chunk := range chunks {
 				refusalDetector.ObserveChatChunk(chunk)
@@ -896,7 +909,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					)
 					continue
 				}
-				if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+				if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() && !textContract.matched() {
 					pendingSSE = append(pendingSSE, sse)
 					continue
 				}
@@ -928,6 +941,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		}
 		if len(chunks) > 0 && !clientDisconnected && clientOutputStarted {
 			c.Writer.Flush()
+		}
+		if clientDisconnected {
+			textContract.startDrain()
 		}
 		return isTerminalEvent
 	}
@@ -980,7 +996,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			}
 		}
 		if !clientDisconnected && !clientOutputStarted {
-			if refusalDetector.IsSilentRefusal() {
+			if textContract == nil && refusalDetector.IsSilentRefusal() {
 				return nil, newOpenAISilentRefusalFailoverError(c, account, requestID)
 			}
 			if len(pendingSSE) > 0 {
@@ -1184,6 +1200,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					zap.String("request_id", requestID),
 				)
 				clientDisconnected = true
+				textContract.startDrain()
 				continue
 			}
 			c.Writer.Flush()

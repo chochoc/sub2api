@@ -1,33 +1,46 @@
 ---
 name: sub2api-admin
-description: Manage Sub2API admin APIs for accounts, redeem codes, groups, proxies, error passthrough rules, TLS fingerprint profiles, imports, exports, batch updates, and raw administrator API calls. Use when the user mentions Sub2API, admin API keys, account management, redeem code management, recharge codes, invitation codes, bulk account import/export, keeping or deleting accounts, refreshing accounts, clearing errors, CRS sync, or managing Sub2API backend settings through the admin API.
+description: Manage and diagnose Sub2API deployments through the admin API and SSH, especially 502/503 error logs, account-level failures, upstream/proxy attribution, health checks, and safe log cleanup. Also use for existing account, proxy, group, redeem-code, and admin API operations.
 ---
 
 # Sub2API Admin
 
-Use the bundled CLI instead of ad hoc `curl`. Run examples from this skill directory.
+Use the bundled Python operations CLI for diagnostics and the existing Node.js CLI for legacy account/redeem-code CRUD. Run examples from this skill directory. The skill does not check or pin a Python version; replace `python` with `python3` when that is the available interpreter.
 
 ```bash
 export SUB2API_BASE_URL='https://your-sub2api-host'
-export SUB2API_ADMIN_API_KEY='<admin api key>'
-# Or, when the deployment uses admin JWT login instead of an admin API key:
-# export SUB2API_JWT='<admin access_token>'
-node scripts/sub2api-admin.js accounts list
+export SUB2API_ADMIN_TOKEN='<replaceable admin access token>'
+export SUB2API_AUTH_MODE='auto'  # admin-... key => api-key; JWT => bearer
+export SUB2API_SSH_SCRIPT='/Users/james/sub2api_gcp.sh'
+python scripts/sub2api_admin.py ops-report --since 24h --format markdown
 ```
 
-For all commands and payload examples, read [references/admin-cli.md](references/admin-cli.md).
+For error semantics and report interpretation, read [references/ops-analysis.md](references/ops-analysis.md). For the existing CRUD command surface, read [references/admin-cli.md](references/admin-cli.md).
 
 ## Workflow
 
-1. Reuse `SUB2API_BASE_URL` and either `SUB2API_ADMIN_API_KEY` or `SUB2API_JWT` from the environment.
-2. Run read-only commands first: `accounts list`, `accounts get <id>`, `groups all`, or `proxies all`.
-3. Before destructive or bulk writes, print the target account names and IDs.
-4. Execute the write command only after the target set is clear.
-5. Run a follow-up read command to verify the result.
+1. Reuse `SUB2API_BASE_URL` and `SUB2API_ADMIN_TOKEN` from the environment. `SUB2API_JWT` and `SUB2API_ADMIN_API_KEY` remain compatible aliases.
+2. Run read-only diagnostics first and preserve the time window in the report.
+3. Correlate `/ops/errors`, `/ops/request-errors`, `/ops/upstream-errors`, account stats, and SSH health before assigning a root cause.
+4. Before Python write or cleanup operations, print the target IDs and require explicit `--confirm`; never restart or upgrade the live service automatically.
+5. Re-run a read-only query after a write and report what changed.
 
 ## Common Commands
 
 ```bash
+python scripts/sub2api_admin.py health
+python scripts/sub2api_admin.py ops-report --since 24h --format markdown
+python scripts/sub2api_admin.py account-report --ids 27,32,33 --since 24h
+python scripts/sub2api_admin.py errors list --status-codes 502,503
+python scripts/sub2api_admin.py errors analyze --account-id 32 --since 24h
+python scripts/sub2api_admin.py errors get --id 123
+python scripts/sub2api_admin.py errors request-upstream --id 123
+python scripts/sub2api_admin.py dashboard snapshot --since 6h
+python scripts/sub2api_admin.py system-logs list --since 1h --level error
+python scripts/sub2api_admin.py errors resolve --id 123 --resolved true --confirm
+python scripts/sub2api_admin.py system-logs cleanup --filter-file filters.json --confirm
+
+# Existing CRUD surface
 node scripts/sub2api-admin.js accounts list --page-size 20
 node scripts/sub2api-admin.js accounts get 40
 node scripts/sub2api-admin.js accounts usage 40
@@ -42,8 +55,12 @@ node scripts/sub2api-admin.js tls-profiles list
 
 ## Safety Notes
 
-- Authentication uses `x-api-key` from `SUB2API_ADMIN_API_KEY` first, then falls back to `Authorization: Bearer <jwt>` from `SUB2API_JWT`.
+- Node authentication uses `x-api-key` from `SUB2API_ADMIN_API_KEY` first, then falls back to `Authorization: Bearer <jwt>` from `SUB2API_JWT`; Python authentication and its aliases are described below.
+- The Python CLI prefers replaceable `SUB2API_ADMIN_TOKEN`, then `SUB2API_JWT`, then the legacy API-key variable. In auto mode, a token beginning with `admin-` is sent as `x-api-key`; set `SUB2API_AUTH_MODE=bearer` or `api-key` to override. No credential is stored in this skill.
 - If the API returns `INVALID_ADMIN_KEY`, ask the user to regenerate the admin API key. If using JWT, log in as an admin user and copy the `access_token` from `POST /api/v1/auth/login`.
 - `accounts export` includes credentials and tokens. Prefer `--file` and avoid printing exports in chat.
+- The Python CLI redacts Authorization, API keys, OAuth credentials, proxy credentials, cookies, and token-like values in output and errors.
+- SSH checks are allowlisted and read-only. The helper at `SUB2API_SSH_SCRIPT` is used only for service, database, Redis, port, and journal inspection.
+- Python `errors resolve`, `system-logs cleanup`, and mutating `api` calls require `--confirm`; inspect first and verify afterward. Check targets before using the legacy Node CRUD writes.
 - Redeem code create/redeem commands should use `--idempotency-key` for payment or recharge workflows.
 - For uncertain or newly added backend APIs, use `api <METHOD> <admin-path>` after a read-only check.

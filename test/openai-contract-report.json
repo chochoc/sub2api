@@ -1,0 +1,260 @@
+{
+  "base_url": "https://127.0.0.1:8443",
+  "api_key": "configured",
+  "model": "codex-auto-review",
+  "expected_policy": "legacy",
+  "expected_stop_mode": "reject",
+  "blocked": false,
+  "blocked_reason": "",
+  "records": [
+    {
+      "case": "health",
+      "expected": "200",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 6,
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "case": "models",
+      "expected": "200 with data[]",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 5,
+      "content_type": "application/json; charset=utf-8",
+      "model": "codex-auto-review",
+      "model_count": 13
+    },
+    {
+      "case": "auth-invalid",
+      "expected": "401 INVALID_API_KEY",
+      "outcome": "pass",
+      "http_status": 401,
+      "elapsed_ms": 3,
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "case": "auth-missing",
+      "expected": "401 API_KEY_REQUIRED",
+      "outcome": "pass",
+      "http_status": 401,
+      "elapsed_ms": 3,
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "case": "C-02-cache-repeat-1",
+      "expected": "200; record usage presence",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 2347,
+      "content_type": "application/json; charset=utf-8",
+      "usage_seen": true
+    },
+    {
+      "case": "C-02-cache-repeat-2",
+      "expected": "200; record usage presence",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1456,
+      "content_type": "application/json; charset=utf-8",
+      "usage_seen": true
+    },
+    {
+      "case": "C-02-cache-summary",
+      "expected": "observe, do not invent hit rate",
+      "outcome": "pass",
+      "observations": [
+        {
+          "status": 200,
+          "usage_seen": true,
+          "cached_tokens": null
+        },
+        {
+          "status": 200,
+          "usage_seen": true,
+          "cached_tokens": null
+        }
+      ]
+    },
+    {
+      "case": "R-01-chat-completions-alias",
+      "expected": "200 JSON Chat Completions response",
+      "outcome": "fail",
+      "http_status": 200,
+      "elapsed_ms": 3,
+      "content_type": "text/html; charset=utf-8",
+      "json_content_type": false
+    },
+    {
+      "case": "S-04-stop-empty",
+      "expected": "legacy: request accepted; strict validation not active",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 6682,
+      "content_type": "application/json; charset=utf-8",
+      "error_param_present": true,
+      "policy": "legacy"
+    },
+    {
+      "case": "S-04-stop-null-item",
+      "expected": "legacy: request accepted; strict validation not active",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 2488,
+      "content_type": "application/json; charset=utf-8",
+      "error_param_present": true,
+      "policy": "legacy"
+    },
+    {
+      "case": "L-01-max-zero",
+      "expected": "legacy: request accepted; strict validation not active",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1930,
+      "content_type": "application/json; charset=utf-8",
+      "error_param_present": false,
+      "policy": "legacy"
+    },
+    {
+      "case": "L-01-max-negative",
+      "expected": "legacy: request accepted; strict validation not active",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 3696,
+      "content_type": "application/json; charset=utf-8",
+      "error_param_present": false,
+      "policy": "legacy"
+    },
+    {
+      "case": "L-01-max-completion-tokens-1",
+      "expected": "2xx; explicit boundary accepted",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1553,
+      "content_type": "application/json; charset=utf-8",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "L-01-max-completion-tokens-16",
+      "expected": "2xx; explicit boundary accepted",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1751,
+      "content_type": "application/json; charset=utf-8",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "L-01-max-completion-tokens-127",
+      "expected": "2xx; explicit boundary accepted",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 2932,
+      "content_type": "application/json; charset=utf-8",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "L-01-max-completion-tokens-128",
+      "expected": "2xx; explicit boundary accepted",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1390,
+      "content_type": "application/json; charset=utf-8",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "L-01-max-completion-tokens-1",
+      "expected": "200; explicit value accepted",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1580,
+      "content_type": "application/json; charset=utf-8",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "S-01-stop-json",
+      "expected": "legacy: 200; marker behavior observed",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 2977,
+      "content_type": "application/json; charset=utf-8",
+      "finish_reason": "stop",
+      "marker_present": true,
+      "policy": "legacy",
+      "stop_mode": "reject"
+    },
+    {
+      "case": "S-01-stop-json-array",
+      "expected": "legacy: 200; marker behavior observed",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1743,
+      "content_type": "application/json; charset=utf-8",
+      "finish_reason": "stop",
+      "marker_present": true,
+      "policy": "legacy",
+      "stop_mode": "reject"
+    },
+    {
+      "case": "S-01-stop-sse",
+      "expected": "legacy: 200; marker behavior observed",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 3127,
+      "content_type": "text/event-stream",
+      "marker_present": false,
+      "done_count": 1,
+      "policy": "legacy",
+      "stop_mode": "reject"
+    },
+    {
+      "case": "T-01-tools-none",
+      "expected": "200; choice semantics preserved",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 3038,
+      "content_type": "application/json; charset=utf-8",
+      "tool_call_count": 0
+    },
+    {
+      "case": "T-01-tools-auto",
+      "expected": "200; choice semantics preserved",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1572,
+      "content_type": "application/json; charset=utf-8",
+      "tool_call_count": 1
+    },
+    {
+      "case": "T-01-tools-required",
+      "expected": "200; choice semantics preserved",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 3445,
+      "content_type": "application/json; charset=utf-8",
+      "tool_call_count": 1
+    },
+    {
+      "case": "T-02-tools-specified-function",
+      "expected": "200; requested function preserved",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 2050,
+      "content_type": "application/json; charset=utf-8",
+      "tool_call_count": 1
+    },
+    {
+      "case": "C-03-usage-shape",
+      "expected": "200; integer prompt/completion/total usage with additive total",
+      "outcome": "pass",
+      "http_status": 200,
+      "elapsed_ms": 1705,
+      "content_type": "application/json; charset=utf-8",
+      "usage": {
+        "prompt_tokens": 12,
+        "completion_tokens": 5,
+        "total_tokens": 17
+      }
+    }
+  ],
+  "generated_at": "2026-10-03T00:14:59Z"
+}

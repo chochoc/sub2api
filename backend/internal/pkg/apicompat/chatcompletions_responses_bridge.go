@@ -1543,10 +1543,11 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
 	}
-	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokens > 0 ||
+	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokensPresent || usage.PromptTokensDetails.CachedTokens > 0 ||
 		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0) {
 		out.InputTokensDetails = &ResponsesInputTokensDetails{
 			CachedTokens:        usage.PromptTokensDetails.CachedTokens,
+			CachedTokensPresent: usage.PromptTokensDetails.CachedTokensPresent || usage.PromptTokensDetails.CachedTokens != 0,
 			CacheCreationTokens: usage.PromptTokensDetails.CacheCreationTokens,
 			CacheWriteTokens:    usage.PromptTokensDetails.CacheWriteTokens,
 		}

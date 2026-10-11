@@ -979,6 +979,7 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	OpenAIChatContract OpenAIChatContractConfig `mapstructure:"openai_chat_contract"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -2536,6 +2537,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_upstream_clients", 5000)
 	viper.SetDefault("gateway.client_idle_ttl_seconds", 900)
 	viper.SetDefault("gateway.concurrency_slot_ttl_minutes", 30) // 并发槽位过期时间（支持超长请求）
+	viper.SetDefault("gateway.openai_chat_contract.policy", "legacy")
+	viper.SetDefault("gateway.openai_chat_contract.stop_mode", "reject")
+	viper.SetDefault("gateway.openai_chat_contract.drain_timeout_seconds", 30)
 	viper.SetDefault("gateway.stream_data_interval_timeout", 180)
 	viper.SetDefault("gateway.stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_stream_data_interval_timeout", 900)
@@ -3417,6 +3421,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ConcurrencySlotTTLMinutes <= 0 {
 		return fmt.Errorf("gateway.concurrency_slot_ttl_minutes must be positive")
+	}
+	if err := c.Gateway.OpenAIChatContract.Validate(); err != nil {
+		return err
 	}
 	if c.Gateway.StreamDataIntervalTimeout < 0 {
 		return fmt.Errorf("gateway.stream_data_interval_timeout must be non-negative")

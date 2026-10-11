@@ -1,0 +1,360 @@
+{
+  "base_url": "https://127.0.0.1:8443",
+  "model": "gpt-5.6-terra",
+  "generated_at": "2026-10-03T00:41:10Z",
+  "duration_seconds": 110.4,
+  "records": [
+    {
+      "case": "C1-multi-turn-cache",
+      "status": 200,
+      "elapsed_ms": 0,
+      "content_type": "",
+      "expected": "1 initial + 10 appended turns; report real cached_tokens",
+      "outcome": "pass",
+      "metrics": {
+        "requests": 11,
+        "successful_requests": 11,
+        "usage_samples": 11,
+        "cached_token_samples": 0,
+        "request_hit_rate": null,
+        "token_hit_rate": null,
+        "prompt_tokens_sum": null,
+        "cached_tokens_sum": null
+      },
+      "samples": [
+        {
+          "turn": 0,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 27,
+          "cached_tokens": null
+        },
+        {
+          "turn": 1,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 47,
+          "cached_tokens": null
+        },
+        {
+          "turn": 2,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 67,
+          "cached_tokens": null
+        },
+        {
+          "turn": 3,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 87,
+          "cached_tokens": null
+        },
+        {
+          "turn": 4,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 107,
+          "cached_tokens": null
+        },
+        {
+          "turn": 5,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 127,
+          "cached_tokens": null
+        },
+        {
+          "turn": 6,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 147,
+          "cached_tokens": null
+        },
+        {
+          "turn": 7,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 167,
+          "cached_tokens": null
+        },
+        {
+          "turn": 8,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 187,
+          "cached_tokens": null
+        },
+        {
+          "turn": 9,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 207,
+          "cached_tokens": null
+        },
+        {
+          "turn": 10,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 227,
+          "cached_tokens": null
+        }
+      ]
+    },
+    {
+      "case": "C2-repeated-cache",
+      "status": 200,
+      "elapsed_ms": 0,
+      "content_type": "",
+      "expected": "1 warm-up + 20 identical requests; report real cached_tokens",
+      "outcome": "pass",
+      "metrics": {
+        "requests": 21,
+        "successful_requests": 21,
+        "usage_samples": 21,
+        "cached_token_samples": 0,
+        "request_hit_rate": null,
+        "token_hit_rate": null,
+        "prompt_tokens_sum": null,
+        "cached_tokens_sum": null
+      },
+      "samples": [
+        {
+          "request": 0,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 1,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 2,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 3,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 4,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 5,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 6,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 7,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 8,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 9,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 10,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 11,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 12,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 13,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 14,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 15,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 16,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 17,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 18,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 19,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        },
+        {
+          "request": 20,
+          "status": 200,
+          "usage_seen": true,
+          "prompt_tokens": 24,
+          "cached_tokens": null
+        }
+      ]
+    },
+    {
+      "case": "S1-string",
+      "status": 200,
+      "elapsed_ms": 2164,
+      "content_type": "application/json; charset=utf-8",
+      "expected": "2xx and response content excludes the earliest stop string",
+      "outcome": "fail",
+      "finish_reason": "stop",
+      "marker_present": true
+    },
+    {
+      "case": "S1-array",
+      "status": 200,
+      "elapsed_ms": 4643,
+      "content_type": "application/json; charset=utf-8",
+      "expected": "2xx and response content excludes the earliest stop string",
+      "outcome": "fail",
+      "finish_reason": "stop",
+      "marker_present": true
+    },
+    {
+      "case": "S1-first-character",
+      "status": 200,
+      "elapsed_ms": 1634,
+      "content_type": "application/json; charset=utf-8",
+      "expected": "2xx and response content excludes the earliest stop string",
+      "outcome": "fail",
+      "finish_reason": "stop",
+      "marker_present": true
+    },
+    {
+      "case": "S1-sse",
+      "status": 200,
+      "elapsed_ms": 1894,
+      "content_type": "text/event-stream",
+      "expected": "2xx SSE without stop string and exactly one [DONE]",
+      "outcome": "pass",
+      "marker_present": false,
+      "done_count": 1
+    },
+    {
+      "case": "T1-tool-choice-none",
+      "status": 200,
+      "elapsed_ms": 1822,
+      "content_type": "application/json; charset=utf-8",
+      "expected": "HTTP 2xx; none/auto/required semantics preserved",
+      "outcome": "pass",
+      "tool_call_count": 0
+    },
+    {
+      "case": "T1-tool-choice-auto",
+      "status": 200,
+      "elapsed_ms": 2030,
+      "content_type": "application/json; charset=utf-8",
+      "expected": "HTTP 2xx; none/auto/required semantics preserved",
+      "outcome": "pass",
+      "tool_call_count": 1
+    },
+    {
+      "case": "T1-tool-choice-required",
+      "status": 200,
+      "elapsed_ms": 1974,
+      "content_type": "application/json; charset=utf-8",
+      "expected": "HTTP 2xx; none/auto/required semantics preserved",
+      "outcome": "pass",
+      "tool_call_count": 1
+    },
+    {
+      "case": "L1-max-completion-tokens",
+      "status": 200,
+      "elapsed_ms": 23236,
+      "content_type": "application/json; charset=utf-8",
+      "expected": "HTTP 2xx and finish_reason=length",
+      "outcome": "fail",
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 24,
+        "completion_tokens": 1207,
+        "total_tokens": 1231,
+        "completion_tokens_details": {
+          "reasoning_tokens": 964
+        }
+      }
+    }
+  ],
+  "summary": {
+    "cases": 10,
+    "failed": 4
+  }
+}

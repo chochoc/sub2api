@@ -53,6 +53,96 @@ func TestUsageConversionsPreserveCacheWriteTokens(t *testing.T) {
 	require.Equal(t, 200, roundTrip.InputTokensDetails.CacheWriteTokens)
 }
 
+func TestUsageConversionsPreserveExplicitZeroCachedTokens(t *testing.T) {
+	var responsesUsage ResponsesUsage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"input_tokens":1000,
+		"output_tokens":50,
+		"input_tokens_details":{"cached_tokens":0}
+	}`), &responsesUsage))
+	require.NotNil(t, responsesUsage.InputTokensDetails)
+	assert.True(t, responsesUsage.InputTokensDetails.CachedTokensPresent)
+
+	chatUsage := chatUsageFromResponsesUsage(&responsesUsage)
+	require.NotNil(t, chatUsage.PromptTokensDetails)
+	assert.Zero(t, chatUsage.PromptTokensDetails.CachedTokens)
+	assert.True(t, chatUsage.PromptTokensDetails.CachedTokensPresent)
+
+	raw, err := json.Marshal(chatUsage)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"prompt_tokens":1000,"completion_tokens":50,"total_tokens":1050,"prompt_tokens_details":{"cached_tokens":0}}`, string(raw))
+
+	roundTrip := ChatUsageToResponsesUsage(chatUsage)
+	require.NotNil(t, roundTrip.InputTokensDetails)
+	assert.True(t, roundTrip.InputTokensDetails.CachedTokensPresent)
+	raw, err = json.Marshal(roundTrip)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"cached_tokens":0`)
+}
+
+func TestChatUsageJSONRoundTripPreservesExplicitZeroCachedTokens(t *testing.T) {
+	var usage ChatUsage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"prompt_tokens":1000,
+		"completion_tokens":50,
+		"total_tokens":1050,
+		"prompt_tokens_details":{"cached_tokens":0}
+	}`), &usage))
+	require.NotNil(t, usage.PromptTokensDetails)
+	assert.True(t, usage.PromptTokensDetails.CachedTokensPresent)
+
+	responsesUsage := ChatUsageToResponsesUsage(&usage)
+	require.NotNil(t, responsesUsage.InputTokensDetails)
+	assert.True(t, responsesUsage.InputTokensDetails.CachedTokensPresent)
+	raw, err := json.Marshal(responsesUsage)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"cached_tokens":0`)
+}
+
+func TestUsageConversionsDoNotInventMissingCachedTokens(t *testing.T) {
+	var responsesUsage ResponsesUsage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"input_tokens":1000,
+		"output_tokens":50
+	}`), &responsesUsage))
+
+	chatUsage := chatUsageFromResponsesUsage(&responsesUsage)
+	assert.Nil(t, chatUsage.PromptTokensDetails)
+
+	raw, err := json.Marshal(chatUsage)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "cached_tokens")
+}
+
+func TestResponsesEventToChatChunksPreservesExplicitZeroCachedTokens(t *testing.T) {
+	state := NewResponsesEventToChatState()
+	state.Model = "gpt-6-luna"
+	state.IncludeUsage = true
+
+	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type: "response.completed",
+		Response: &ResponsesResponse{
+			Status: "completed",
+			Usage: &ResponsesUsage{
+				InputTokens:  100,
+				OutputTokens: 10,
+				InputTokensDetails: &ResponsesInputTokensDetails{
+					CachedTokensPresent: true,
+				},
+			},
+		},
+	}, state)
+
+	require.Len(t, chunks, 2)
+	require.NotNil(t, chunks[1].Usage)
+	require.NotNil(t, chunks[1].Usage.PromptTokensDetails)
+	assert.Zero(t, chunks[1].Usage.PromptTokensDetails.CachedTokens)
+	assert.True(t, chunks[1].Usage.PromptTokensDetails.CachedTokensPresent)
+	raw, err := json.Marshal(chunks[1].Usage)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"cached_tokens":0`)
+}
+
 func TestResponsesUsageNestedCacheWritePresenceOverridesTopLevelAlias(t *testing.T) {
 	tests := []struct {
 		name       string

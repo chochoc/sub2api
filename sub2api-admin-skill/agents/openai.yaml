@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sub2API Admin & Ops"
+  short_description: "Analyze Sub2API errors and manage safely"
+  default_prompt: "Use $sub2api-admin to analyze Sub2API 502/503 logs and perform confirmed admin operations safely."
+
+policy:
+  allow_implicit_invocation: true
