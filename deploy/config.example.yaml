@@ -217,6 +217,11 @@ security:
 # 网关配置
 # =============================================================================
 gateway:
+  # Chat compatibility contract used by the deployment profile. Local text stop does not stop upstream billing.
+  openai_chat_contract:
+    policy: strict
+    stop_mode: text
+    drain_timeout_seconds: 30
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600
