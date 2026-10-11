@@ -18,6 +18,15 @@ type chatMessageContent struct {
 // true. store is always false and reasoning.encrypted_content is always
 // included so that the response translator has full context.
 func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
+	return ChatCompletionsToResponsesWithOptions(req, ChatToResponsesOptions{})
+}
+
+type ChatToResponsesOptions struct {
+	PreserveMaxOutputTokens bool
+	NormalizeFunctionChoice bool
+}
+
+func ChatCompletionsToResponsesWithOptions(req *ChatCompletionsRequest, opts ChatToResponsesOptions) (*ResponsesRequest, error) {
 	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, req.ReasoningEffort); err != nil {
 		return nil, err
 	}
@@ -62,7 +71,7 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 	}
 	if maxTokens > 0 {
 		v := maxTokens
-		if v < minMaxOutputTokens {
+		if !opts.PreserveMaxOutputTokens && v < minMaxOutputTokens {
 			v = minMaxOutputTokens
 		}
 		out.MaxOutputTokens = &v
@@ -101,6 +110,25 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 		out.ToolChoice = tc
 	}
 
+	if opts.NormalizeFunctionChoice && len(out.ToolChoice) > 0 {
+		var choice struct {
+			Type     string `json:"type"`
+			Name     string `json:"name"`
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		}
+		if json.Unmarshal(out.ToolChoice, &choice) == nil && choice.Type == "function" {
+			name := choice.Function.Name
+			if name == "" {
+				name = choice.Name
+			}
+			out.ToolChoice, err = json.Marshal(map[string]string{"type": "function", "name": name})
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	return out, nil
 }
 

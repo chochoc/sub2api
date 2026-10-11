@@ -42,6 +42,10 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	contract, contractErr := prepareChatContract(s.cfg, c, body, contractAnthropic)
+	if contractErr != nil {
+		return nil, contractErr
+	}
 
 	// 1. Parse Chat Completions request
 	var ccReq apicompat.ChatCompletionsRequest
@@ -57,7 +61,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	clientStream := ccReq.Stream
 
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	responsesReq, err := contract.convert(&ccReq)
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
 		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
@@ -76,6 +80,10 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 
+	if err := contract.applyAnthropic(anthropicReq); err != nil {
+		WriteChatContractError(c, err)
+		return nil, err
+	}
 	// 4. Force upstream streaming（客户端原始终决定响应格式；
 	// 上游恒为流式，非流式由缓冲路径组装）。
 	anthropicReq.Stream = true
@@ -120,6 +128,10 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
+	if err := contract.validateAnthropicBody(forwardedBody); err != nil {
+		WriteChatContractError(c, err)
+		return nil, err
+	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)

@@ -120,6 +120,18 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Error passthrough binding
+	var contractMax *int
+	if effectiveAPIKeyPlatform(c, apiKey) == service.PlatformAnthropic {
+		constraints, constraintErr := service.ParseOpenAIChatContract(h.cfg, body)
+		if constraintErr != nil {
+			service.WriteChatContractError(c, constraintErr)
+			return
+		}
+		if constraints != nil {
+			contractMax = constraints.EffectiveMax
+		}
+	}
+
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
@@ -151,7 +163,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// 余额模式在途预留：防止并发请求在预检时看到同一份余额而集体透支。
-	inflightRelease, err := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, tokenInflightEstimate(reqModel, body))
+	inflightEstimate := tokenInflightEstimate(reqModel, body)
+	if contractMax != nil {
+		inflightEstimate.MaxTokens = *contractMax
+	}
+	inflightRelease, err := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, inflightEstimate)
 	if err != nil {
 		reqLog.Info("gateway.cc.inflight_reservation_rejected", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
@@ -319,6 +335,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
+			if service.IsChatContractParameterError(err) {
+				return
+			}
 			if errors.As(err, &failoverErr) {
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleCCFailoverExhausted(c, failoverErr, true)

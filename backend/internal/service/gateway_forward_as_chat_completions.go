@@ -34,6 +34,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	parsed *ParsedRequest,
 ) (*ForwardResult, error) {
 	startTime := time.Now()
+	contract, contractErr := prepareChatContract(s.cfg, c, body, contractAnthropic)
+	if contractErr != nil {
+		return nil, contractErr
+	}
 
 	// 1. Parse Chat Completions request
 	var ccReq apicompat.ChatCompletionsRequest
@@ -44,7 +48,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	clientStream := ccReq.Stream
 
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	responsesReq, err := contract.convert(&ccReq)
 	if err != nil {
 		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 	}
@@ -78,6 +82,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 
+	if err := contract.applyAnthropic(anthropicReq); err != nil {
+		WriteChatContractError(c, err)
+		return nil, err
+	}
 	// 3. Force upstream streaming
 	anthropicReq.Stream = true
 	reqStream := true
@@ -134,6 +142,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	reasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(forwardedBody, "output_config.effort").String())
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, mappedModel)
 
+	if err := contract.validateAnthropicBody(forwardedBody); err != nil {
+		WriteChatContractError(c, err)
+		return nil, err
+	}
 	// 11. Send request
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {

@@ -62,6 +62,14 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	var contract chatContractPlan
+	if account.Platform != PlatformGrok {
+		var err error
+		contract, err = prepareChatContract(s.cfg, c, body, contractRawChat)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// 1. Parse minimal fields needed for routing/billing
 	originalModel := gjson.GetBytes(body, "model").String()
@@ -96,9 +104,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, err
 	}
 	// 3. Rewrite model in body (no protocol conversion)
-	upstreamBody := body
+	upstreamBody, contractErr := contract.rawBody(body)
+	if contractErr != nil {
+		return nil, contractErr
+	}
 	if upstreamModel != originalModel {
-		upstreamBody = ReplaceModelInBody(body, upstreamModel)
+		upstreamBody = ReplaceModelInBody(upstreamBody, upstreamModel)
 	}
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody
