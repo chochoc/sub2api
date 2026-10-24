@@ -458,6 +458,14 @@ make check-architecture-index
 
 <!-- architecture-change-index:start -->
 
+### 2026-10-17 · ADMIN-SKILL-001 · 完善 Sub2API 管理 skill 与管理员 KEY 生命周期
+
+- 原因与行为：管理 skill 新增原生 macOS Keychain/Linux Secret Service 凭据读取、用户/KEY/消费排行/账户负载/定时测试/备份计划命令；消费排行按完整分页 usage 明细的 `actual_cost` 汇总并保留时间、筛选和完整性元数据。Node 直通写入也要求确认。
+- 代码路径：`backend/internal/handler/admin/apikey_handler.go`、`backend/internal/handler/admin/user_handler.go`、`backend/internal/handler/wire.go`、`backend/internal/server/routes/admin.go`、`skills/sub2api-admin/scripts/sub2api_admin.py`、`skills/sub2api-admin/scripts/sub2api-admin.js`、`skills/sub2api-admin/tests/test_sub2api_admin.py`、`sub2api-admin-skill/scripts/sub2api_admin.py`、`sub2api-admin-skill/scripts/sub2api-admin.js`、`sub2api-admin-skill/tests/test_sub2api_admin.py`。
+- 后端路径：`sub2api/backend/internal/handler/admin/apikey_handler.go`、`sub2api/backend/internal/handler/admin/user_handler.go`、`sub2api/backend/internal/handler/wire.go`、`sub2api/backend/internal/server/routes/admin.go`。新增显式目标用户的管理员 KEY CRUD 与 `/admin/users/me`，复用 APIKeyService 的配额、分组、所有权和校验。
+- 文档路径：`sub2api/docs/SUB2API_ADMIN_SKILL_IMPLEMENTATION.md`、`sub2api/sub2api-admin-skill/SKILL.md`、`sub2api/sub2api-admin-skill/references/admin-cli.md` 及其发布副本。
+- 验证：Python 单元测试、Python 编译、Node 语法检查；Go 定向测试待依赖编译完成后记录。未连接生产服务，未创建/修改真实 KEY、用户或计划。
+
 ### 2026-10-03 · ARCH-003 · 增加本地启动脚本
 
 - 原因与行为：新增仓库根目录 `start.sh`，从项目根目录启动 `backend/bin/sub2api`，保证配置文件按项目目录查找，并将命令行参数透传给服务；可通过 `SUB2API_BIN` 指定其他二进制路径。

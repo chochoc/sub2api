@@ -8,9 +8,11 @@ skill directory can be copied to another machine without extra packages.
 import argparse
 import csv
 import datetime as dt
+import decimal
 import http.client
 import json
 import os
+import platform
 import re
 import shlex
 import subprocess
@@ -34,6 +36,27 @@ REDACTED = "[REDACTED]"
 
 class AdminError(RuntimeError):
     """A safe, user-facing operation error."""
+
+
+def keychain_token(base_url: str) -> str:
+    """Read the admin token from the native OS credential store."""
+    service = os.environ.get("SUB2API_KEYCHAIN_SERVICE", "sub2api-admin")
+    account = os.environ.get("SUB2API_KEYCHAIN_ACCOUNT", base_url.rstrip("/"))
+    system = platform.system().lower()
+    if system == "darwin":
+        argv = ["security", "find-generic-password", "-s", service, "-a", account, "-w"]
+    elif system == "linux":
+        argv = ["secret-tool", "lookup", "service", service, "account", account]
+    else:
+        raise AdminError("OS keychain is unsupported; set SUB2API_ADMIN_TOKEN explicitly")
+    try:
+        result = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AdminError("unable to read Sub2API admin token from OS keychain") from exc
+    token = result.stdout.strip() if result.returncode == 0 else ""
+    if not token:
+        raise AdminError("no Sub2API admin token found in OS keychain")
+    return token
 
 
 def redact(value: Any, key: str = "") -> Any:
@@ -282,7 +305,7 @@ class AdminClient:
             return {"x-api-key": self.token, "Accept": "application/json"}
         return {"Authorization": "Bearer " + self.token, "Accept": "application/json"}
 
-    def request(self, method: str, path: str, body: Optional[Any] = None, params: Optional[Mapping[str, Any]] = None) -> Any:
+    def request(self, method: str, path: str, body: Optional[Any] = None, params: Optional[Mapping[str, Any]] = None, extra_headers: Optional[Mapping[str, str]] = None) -> Any:
         method = method.upper()
         retryable = method in {"GET", "HEAD", "OPTIONS"}
         url = self.base_url + (path if path.startswith("/") else "/" + path)
@@ -290,6 +313,7 @@ class AdminClient:
         if query:
             url += "?" + urllib.parse.urlencode(query)
         headers = self._headers()
+        headers.update(extra_headers or {})
         data = None
         if body is not None:
             headers["Content-Type"] = "application/json"
@@ -395,6 +419,194 @@ class AdminClient:
         return self.request("GET", "/api/v1/admin/ops/request-errors/%s/upstream-errors" % error_id, params=params)
 
 
+def payload_data(payload: Any) -> Any:
+    """Unwrap the standard Sub2API response envelope."""
+    if isinstance(payload, Mapping) and "data" in payload:
+        return payload["data"]
+    return payload
+
+
+def page_items(payload: Any) -> Tuple[List[Dict[str, Any]], Optional[int]]:
+    value = payload_data(payload)
+    if isinstance(value, list):
+        return [dict(row) for row in value if isinstance(row, Mapping)], None
+    if not isinstance(value, Mapping):
+        return [], None
+    items = value.get("items", value.get("data", []))
+    rows = [dict(row) for row in items if isinstance(row, Mapping)] if isinstance(items, list) else []
+    total = value.get("total")
+    return rows, int(total) if isinstance(total, (int, float)) else None
+
+
+def fetch_all_pages(client: AdminClient, path: str, params: Mapping[str, Any], max_pages: int = 1000) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    page = 1
+    last_signature = None
+    while page <= max_pages:
+        query = dict(params)
+        query.update({"page": page, "page_size": query.get("page_size", 500)})
+        items, total = page_items(client.request("GET", path, params=query))
+        signature = tuple(str(item.get("id", "")) for item in items)
+        if signature and signature == last_signature:
+            raise AdminError("pagination repeated the same page; refusing incomplete result")
+        last_signature = signature
+        rows.extend(items)
+        if not items or (total is not None and len(rows) >= total) or len(items) < int(query["page_size"]):
+            return rows
+        page += 1
+    raise AdminError("pagination exceeded --max-pages; result is incomplete")
+
+
+def parse_date(value: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise AdminError("date must use YYYY-MM-DD") from exc
+
+
+def today_range(timezone_name: str) -> Tuple[str, str]:
+    try:
+        from zoneinfo import ZoneInfo
+        today = dt.datetime.now(ZoneInfo(timezone_name)).date()
+    except Exception as exc:
+        raise AdminError("invalid timezone: " + timezone_name) from exc
+    return today.isoformat(), (today + dt.timedelta(days=1)).isoformat()
+
+
+def admin_request(client: AdminClient, method: str, path: str, body: Any = None, params: Optional[Mapping[str, Any]] = None, extra_headers: Optional[Mapping[str, str]] = None) -> Any:
+    return payload_data(client.request(method, path, body=body, params=params, extra_headers=extra_headers))
+
+
+def write_secret_output(value: Any, filename: str) -> Dict[str, Any]:
+    path = Path(filename).expanduser()
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        fd = os.open(str(path), flags, 0o600)
+    except FileExistsError as exc:
+        raise AdminError("secret output already exists; choose a new path") from exc
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(value, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+    return {"secret_output": str(path), "mode": "0600"}
+
+
+def usage_rows(client: AdminClient, params: Mapping[str, Any], max_pages: int) -> List[Dict[str, Any]]:
+    return fetch_all_pages(client, "/api/v1/admin/usage", params, max_pages=max_pages)
+
+
+def money(value: Any) -> decimal.Decimal:
+    try:
+        return decimal.Decimal(str(value or 0))
+    except decimal.InvalidOperation:
+        return decimal.Decimal("0")
+
+
+def usage_top_keys(client: AdminClient, args: argparse.Namespace) -> Dict[str, Any]:
+    start = args.start_date
+    end = args.end_date
+    if not start or not end:
+        start, end = today_range(args.timezone)
+    parse_date(start); parse_date(end)
+    params: Dict[str, Any] = {"start_date": start, "end_date": end, "timezone": args.timezone,
+                              "sort_by": "created_at", "sort_order": "asc", "exact_total": "false"}
+    for flag in ("user_id", "account_id", "group_id", "model", "request_type", "billing_type", "billing_mode"):
+        value = getattr(args, flag, None)
+        if value is not None:
+            params[flag] = value
+    if args.stream is not None:
+        params["stream"] = str(args.stream).lower()
+    rows = usage_rows(client, params, args.max_pages)
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        key_id = row.get("api_key_id")
+        if key_id is None:
+            continue
+        bucket = grouped.setdefault(str(key_id), {"api_key_id": int(key_id), "user_id": row.get("user_id"), "name": row.get("api_key_name") or row.get("key_name") or "", "requests": 0, "actual_cost": decimal.Decimal("0"), "total_cost": decimal.Decimal("0"), "tokens": 0})
+        bucket["requests"] += 1
+        bucket["actual_cost"] += money(row.get("actual_cost", row.get("cost")))
+        bucket["total_cost"] += money(row.get("total_cost", row.get("cost")))
+        bucket["tokens"] += int(row.get("total_tokens") or row.get("tokens") or 0)
+    metric = args.metric
+    ranked = sorted(grouped.values(), key=lambda item: item[metric], reverse=True)[:args.limit]
+    for item in ranked:
+        item[metric] = format(item[metric], "f")
+        item["actual_cost"] = format(item["actual_cost"], "f")
+        item["total_cost"] = format(item["total_cost"], "f")
+    return {"start_date": start, "end_date": end, "timezone": args.timezone, "metric": metric, "rows_scanned": len(rows), "complete": True, "items": ranked}
+
+
+def command_management(client: AdminClient, args: argparse.Namespace) -> Any:
+    if args.command == "users":
+        if args.action == "list":
+            return admin_request(client, "GET", "/api/v1/admin/users", params={k: v for k, v in {"page": args.page, "page_size": args.page_size, "search": args.search, "status": args.status, "role": args.role, "sort_by": args.sort_by, "sort_order": args.sort_order}.items() if v is not None})
+        if args.action == "usage":
+            if args.self_user:
+                me = admin_request(client, "GET", "/api/v1/admin/users/me")
+                args.user_id = int(me.get("id"))
+            if not args.user_id: raise AdminError("users usage requires --user-id or --self")
+            start, end = (args.start_date, args.end_date) if args.start_date and args.end_date else today_range(args.timezone)
+            return admin_request(client, "GET", "/api/v1/admin/usage/stats", params={"user_id": args.user_id, "start_date": start, "end_date": end, "timezone": args.timezone, "nocache": 1})
+        if args.action == "keys":
+            return admin_request(client, "GET", "/api/v1/admin/users/%s/api-keys" % args.user_id, params={"page": args.page, "page_size": args.page_size})
+    if args.command == "keys":
+        base = "/api/v1/admin/users/%s/keys" % args.user_id
+        if args.action == "list":
+            return admin_request(client, "GET", base, params={"page": args.page, "page_size": args.page_size, "search": args.search, "status": args.status, "group_id": args.group_id})
+        if args.action == "create":
+            confirm(args, "create api key")
+            headers = {"Idempotency-Key": args.idempotency_key} if args.idempotency_key else None
+            created = admin_request(client, "POST", base, body=json.loads(args.json_body), extra_headers=headers)
+            result = {"key": {k: v for k, v in created.items() if k != "key"}} if isinstance(created, Mapping) else {}
+            if args.secret_output:
+                result.update(write_secret_output(created, args.secret_output))
+            return result
+        key_path = base + "/%s" % args.key_id
+        if args.action == "get":
+            return admin_request(client, "GET", key_path)
+        if args.action == "update":
+            confirm(args, "update api key")
+            return admin_request(client, "PUT", key_path, body=json.loads(args.json_body))
+        if args.action == "delete":
+            confirm(args, "delete api key")
+            return admin_request(client, "DELETE", key_path)
+    if args.command == "usage" and args.action == "top-keys":
+        return usage_top_keys(client, args)
+    if args.command == "accounts" and args.action == "load":
+        params = {"page_size": args.page_size, "platform": args.platform, "type": args.type, "status": args.status, "group": args.group, "search": args.search, "sort_by": args.sort_by, "sort_order": args.sort_order, "include_scheduler_score": "1", "lite": "1"}
+        rows = fetch_all_pages(client, "/api/v1/admin/accounts", {k: v for k, v in params.items() if v is not None}, args.max_pages)
+        return {"filters": {k: v for k, v in params.items() if v is not None}, "count": len(rows), "items": rows}
+    if args.command == "scheduled-tests":
+        if args.action == "list":
+            if args.account_id is None: raise AdminError("scheduled-tests list requires --account-id")
+            return admin_request(client, "GET", "/api/v1/admin/accounts/%s/scheduled-test-plans" % args.account_id)
+        path = "/api/v1/admin/scheduled-test-plans"
+        if args.action == "create":
+            confirm(args, "create scheduled test")
+            return admin_request(client, "POST", path, body=json.loads(args.json_body))
+        if args.action in ("get-results", "update", "delete"):
+            path += "/%s" % args.plan_id
+        if args.action == "get-results":
+            return admin_request(client, "GET", path + "/results", params={"limit": args.limit})
+        if args.action == "update":
+            confirm(args, "update scheduled test")
+            return admin_request(client, "PUT", path, body=json.loads(args.json_body))
+        if args.action == "delete":
+            confirm(args, "delete scheduled test")
+            return admin_request(client, "DELETE", path)
+    if args.command == "backup-schedule":
+        path = "/api/v1/admin/backups/schedule"
+        if args.action == "get": return admin_request(client, "GET", path)
+        confirm(args, "update backup schedule")
+        return admin_request(client, "PUT", path, body=json.loads(args.json_body))
+    if args.command == "scheduler-settings":
+        path = "/api/v1/admin/settings"
+        if args.action == "get":
+            return admin_request(client, "GET", path)
+        confirm(args, "update scheduler settings")
+        return admin_request(client, "PUT", path, body=json.loads(args.json_body))
+    raise AdminError("unsupported management command")
+
+
 class RemoteDiagnostics:
     """Run a small allowlisted set of read-only commands through the SSH helper."""
     COMMANDS = {
@@ -440,9 +652,12 @@ class RemoteDiagnostics:
 
 
 def build_client(args: argparse.Namespace) -> AdminClient:
+    base_url = args.base_url or os.environ.get("SUB2API_BASE_URL", "")
     explicit_token = args.token or os.environ.get("SUB2API_ADMIN_TOKEN")
     jwt = os.environ.get("SUB2API_JWT")
     api_key = os.environ.get("SUB2API_ADMIN_API_KEY")
+    if not explicit_token and not jwt and not api_key and os.environ.get("SUB2API_KEYCHAIN", "true").lower() not in {"0", "false", "no"}:
+        explicit_token = keychain_token(base_url)
     token = explicit_token or jwt or api_key
     auth_mode = args.auth_mode or os.environ.get("SUB2API_AUTH_MODE", "auto")
     if auth_mode == "auto":
@@ -457,7 +672,7 @@ def build_client(args: argparse.Namespace) -> AdminClient:
             auth_mode = "api-key"
         else:
             auth_mode = "bearer"
-    return AdminClient(args.base_url or os.environ.get("SUB2API_BASE_URL", ""), token or "", auth_mode, args.timeout, args.retries)
+    return AdminClient(base_url, token or "", auth_mode, args.timeout, args.retries)
 
 
 def output_value(value: Any, output_format: str, output_file: Optional[str] = None) -> None:
@@ -558,6 +773,42 @@ def build_parser() -> argparse.ArgumentParser:
     api.add_argument("--file", dest="json_file", help="read JSON request body from a file")
     api.add_argument("--confirm", action="store_true", help="required for POST/PUT/PATCH/DELETE")
 
+    users = sub.add_parser("users", help="query and manage users", parents=[common])
+    users.add_argument("action", choices=("list", "usage", "keys"))
+    users.add_argument("--user-id", type=int); users.add_argument("--self", dest="self_user", action="store_true")
+    users.add_argument("--page", type=int, default=1); users.add_argument("--page-size", type=int, default=100)
+    users.add_argument("--search"); users.add_argument("--status"); users.add_argument("--role")
+    users.add_argument("--sort-by", default="created_at"); users.add_argument("--sort-order", default="desc")
+    users.add_argument("--start-date"); users.add_argument("--end-date"); users.add_argument("--timezone", default="Asia/Shanghai")
+
+    keys = sub.add_parser("keys", help="manage user API keys", parents=[common])
+    keys.add_argument("action", choices=("list", "get", "create", "update", "delete"))
+    keys.add_argument("--user-id", type=int, required=True); keys.add_argument("--key-id", type=int)
+    keys.add_argument("--page", type=int, default=1); keys.add_argument("--page-size", type=int, default=100)
+    keys.add_argument("--search"); keys.add_argument("--status"); keys.add_argument("--group-id", type=int)
+    keys.add_argument("--json", dest="json_body"); keys.add_argument("--idempotency-key"); keys.add_argument("--secret-output"); keys.add_argument("--confirm", action="store_true")
+
+    usage_cmd = sub.add_parser("usage", help="aggregate usage", parents=[common])
+    usage_cmd.add_argument("action", choices=("top-keys",))
+    usage_cmd.add_argument("--start-date"); usage_cmd.add_argument("--end-date"); usage_cmd.add_argument("--timezone", default="Asia/Shanghai")
+    usage_cmd.add_argument("--limit", type=int, default=5); usage_cmd.add_argument("--metric", choices=("actual_cost", "total_cost", "tokens"), default="actual_cost")
+    usage_cmd.add_argument("--user-id", type=int); usage_cmd.add_argument("--account-id", type=int); usage_cmd.add_argument("--group-id", type=int)
+    usage_cmd.add_argument("--model"); usage_cmd.add_argument("--request-type"); usage_cmd.add_argument("--billing-type", type=int); usage_cmd.add_argument("--billing-mode"); usage_cmd.add_argument("--stream", type=lambda v: v.lower() == "true")
+    usage_cmd.add_argument("--max-pages", type=int, default=1000)
+
+    accounts_load = sub.add_parser("accounts", help="account management extensions", parents=[common])
+    accounts_load.add_argument("action", choices=("load",)); accounts_load.add_argument("--page-size", type=int, default=200); accounts_load.add_argument("--max-pages", type=int, default=1000)
+    accounts_load.add_argument("--platform"); accounts_load.add_argument("--type"); accounts_load.add_argument("--status"); accounts_load.add_argument("--group"); accounts_load.add_argument("--search"); accounts_load.add_argument("--sort-by", default="name"); accounts_load.add_argument("--sort-order", default="asc")
+
+    plans = sub.add_parser("scheduled-tests", help="manage scheduled account tests", parents=[common])
+    plans.add_argument("action", choices=("list", "create", "update", "delete", "get-results")); plans.add_argument("--account-id", type=int); plans.add_argument("--plan-id", type=int); plans.add_argument("--json", dest="json_body"); plans.add_argument("--limit", type=int); plans.add_argument("--confirm", action="store_true")
+
+    backup_schedule = sub.add_parser("backup-schedule", help="manage scheduled backups", parents=[common])
+    backup_schedule.add_argument("action", choices=("get", "update")); backup_schedule.add_argument("--json", dest="json_body"); backup_schedule.add_argument("--confirm", action="store_true")
+
+    scheduler = sub.add_parser("scheduler-settings", help="read or update scheduler settings", parents=[common])
+    scheduler.add_argument("action", choices=("get", "update")); scheduler.add_argument("--json", dest="json_body"); scheduler.add_argument("--confirm", action="store_true")
+
     logs = sub.add_parser("system-logs", help="list or safely clean indexed system logs", parents=[common])
     logs.add_argument("action", choices=("list", "cleanup"))
     logs.add_argument("--since", default="1h")
@@ -586,6 +837,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0 if all(item.get("returncode") == 0 for item in result.values()) else 1
 
         client = build_client(args)
+        if args.command in {"users", "keys", "usage", "accounts", "scheduled-tests", "backup-schedule", "scheduler-settings"}:
+            output_value(command_management(client, args), args.format, args.output)
+            return 0
         if args.command == "dashboard":
             since, until = time_window(args)
             path = {

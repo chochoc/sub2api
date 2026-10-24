@@ -186,6 +186,14 @@ func registerAdminAPIKeyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		apiKeys.PUT("/:id", h.Admin.APIKey.UpdateGroup)
 	}
+	// Full administrator-managed user key lifecycle. The user id is explicit
+	// so an admin token cannot accidentally create a key for itself or another
+	// user through implicit subject substitution.
+	admin.GET("/users/:id/keys", h.Admin.APIKey.ListByUser)
+	admin.POST("/users/:id/keys", h.Admin.APIKey.CreateForUser)
+	admin.GET("/users/:id/keys/:key_id", h.Admin.APIKey.GetForUser)
+	admin.PUT("/users/:id/keys/:key_id", h.Admin.APIKey.UpdateForUser)
+	admin.DELETE("/users/:id/keys/:key_id", h.Admin.APIKey.DeleteForUser)
 }
 
 func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
@@ -301,6 +309,7 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	users := admin.Group("/users")
 	{
 		users.GET("", h.Admin.User.List)
+		users.GET("/me", h.Admin.User.GetMe)
 		users.GET("/:id", h.Admin.User.GetByID)
 		users.POST("/:id/auth-identities", h.Admin.User.BindAuthIdentity)
 		users.POST("", h.Admin.User.Create)

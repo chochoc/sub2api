@@ -14,6 +14,19 @@ export SUB2API_ADMIN_TOKEN='<replaceable-admin-token>'
 export SUB2API_SSH_SCRIPT='/Users/james/sub2api_gcp.sh'
 ```
 
+推荐将非敏感配置写入 `$CODEX_HOME/sub2api-admin/config.json`（默认 `~/.codex/sub2api-admin/config.json`），这样 Codex CLI 和 Desktop 都能使用同一份配置：
+
+```json
+{
+  "base_url": "https://your-sub2api-domain",
+  "auth_mode": "auto",
+  "keychain_service": "sub2api-admin",
+  "keychain_account": "https://your-sub2api-domain"
+}
+```
+
+管理员 token 只保存到 macOS Keychain 或 Linux Secret Service，不写入该文件。命令行参数优先级最高，其次是环境变量，最后是该配置文件。
+
 `SUB2API_ADMIN_TOKEN` 支持 JWT 和 Sub2API Admin API Key。`auto` 模式会将 `admin-` 前缀的令牌作为 `x-api-key`，其它令牌作为 `Authorization: Bearer`；也可以显式设置：
 
 ```bash

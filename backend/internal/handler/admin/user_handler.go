@@ -230,6 +230,23 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 	response.Success(c, dto.UserFromServiceAdmin(user))
 }
 
+// GetMe returns the authenticated administrator. It is deliberately separate
+// from /users/:id so clients can ask for the current operator without guessing
+// or exposing an implicit target in mutating endpoints.
+func (h *UserHandler) GetMe(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "Authorization required")
+		return
+	}
+	user, err := h.adminService.GetUser(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.UserFromServiceAdmin(user))
+}
+
 // BindAuthIdentity manually binds a canonical auth identity to a user.
 // POST /api/v1/admin/users/:id/auth-identities
 func (h *UserHandler) BindAuthIdentity(c *gin.Context) {

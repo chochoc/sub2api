@@ -30,6 +30,27 @@ node scripts/sub2api-admin.js <command>
 
 ## Accounts
 
+## Users, keys, usage and scheduling
+
+```bash
+python scripts/sub2api_admin.py users list --status active --sort-by last_used_at --sort-order desc
+python scripts/sub2api_admin.py users usage --user-id 123
+python scripts/sub2api_admin.py users keys --user-id 123
+python scripts/sub2api_admin.py usage top-keys --limit 5 --metric actual_cost
+python scripts/sub2api_admin.py accounts load --platform openai
+python scripts/sub2api_admin.py keys list --user-id 123
+python scripts/sub2api_admin.py keys create --user-id 123 --json '{"name":"automation","quota":10,"group_id":2}' --secret-output ./new-key.json --confirm
+python scripts/sub2api_admin.py keys update --user-id 123 --key-id 7 --json '{"quota":20,"group_id":2}' --confirm
+python scripts/sub2api_admin.py scheduled-tests list --account-id 40
+python scripts/sub2api_admin.py scheduled-tests create --json '{"account_id":40,"model_id":"gpt-4o","cron_expression":"0 * * * *"}' --confirm
+python scripts/sub2api_admin.py backup-schedule get
+python scripts/sub2api_admin.py scheduler-settings get
+```
+
+`usage top-keys` 汇总完整分页的 `/admin/usage` 明细，默认按 `actual_cost`（用户实际扣费）排序；`--metric total_cost` 才按标准价，不能把 Token 数当作费用。默认时间范围是 `Asia/Shanghai` 当日，可用 `--start-date`、`--end-date`、`--timezone` 和用户、账户、分组、模型、请求类型等组合筛选。达到 `--max-pages` 会失败并标记为不完整，不返回静默截断结果。
+
+管理员 KEY CRUD 使用 `/admin/users/:user_id/keys`，目标用户必须显式提供。创建、修改、删除和计划/备份变更均要求 `--confirm`；真正的 KEY 只在创建响应中出现，输出和日志会脱敏。
+
 ### 只读
 
 ```bash

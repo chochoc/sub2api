@@ -16,10 +16,11 @@ python scripts/sub2api_admin.py ops-report --since 24h --format markdown
 ```
 
 For error semantics and report interpretation, read [references/ops-analysis.md](references/ops-analysis.md). For the existing CRUD command surface, read [references/admin-cli.md](references/admin-cli.md).
+The implementation scope, endpoint contract, safety rules, and verification limits are recorded in [SUB2API_ADMIN_SKILL_IMPLEMENTATION.md](../docs/SUB2API_ADMIN_SKILL_IMPLEMENTATION.md) when this skill is used from the repository.
 
 ## Workflow
 
-1. Reuse `SUB2API_BASE_URL` and `SUB2API_ADMIN_TOKEN` from the environment. `SUB2API_JWT` and `SUB2API_ADMIN_API_KEY` remain compatible aliases.
+1. Reuse `SUB2API_BASE_URL` and credentials from the environment or native OS keychain. Set `SUB2API_KEYCHAIN_SERVICE` and `SUB2API_KEYCHAIN_ACCOUNT` to select the keychain item; explicit token variables take precedence. `SUB2API_JWT` and `SUB2API_ADMIN_API_KEY` remain compatible aliases.
 2. Run read-only diagnostics first and preserve the time window in the report.
 3. Correlate `/ops/errors`, `/ops/request-errors`, `/ops/upstream-errors`, account stats, and SSH health before assigning a root cause.
 4. Before Python write or cleanup operations, print the target IDs and require explicit `--confirm`; never restart or upgrade the live service automatically.
@@ -41,6 +42,15 @@ python scripts/sub2api_admin.py errors resolve --id 123 --resolved true --confir
 python scripts/sub2api_admin.py system-logs cleanup --filter-file filters.json --confirm
 
 # Existing CRUD surface
+python scripts/sub2api_admin.py users list --status active --sort-by last_used_at --sort-order desc
+python scripts/sub2api_admin.py users usage --user-id 123
+python scripts/sub2api_admin.py usage top-keys --limit 5 --metric actual_cost
+python scripts/sub2api_admin.py accounts load --platform openai
+python scripts/sub2api_admin.py keys list --user-id 123
+python scripts/sub2api_admin.py keys create --user-id 123 --json '{"name":"automation","quota":10,"group_id":2}' --confirm
+python scripts/sub2api_admin.py scheduled-tests list --account-id 40
+python scripts/sub2api_admin.py backup-schedule get
+python scripts/sub2api_admin.py scheduler-settings get
 node scripts/sub2api-admin.js accounts list --page-size 20
 node scripts/sub2api-admin.js accounts get 40
 node scripts/sub2api-admin.js accounts usage 40
@@ -56,7 +66,7 @@ node scripts/sub2api-admin.js tls-profiles list
 ## Safety Notes
 
 - Node authentication uses `x-api-key` from `SUB2API_ADMIN_API_KEY` first, then falls back to `Authorization: Bearer <jwt>` from `SUB2API_JWT`; Python authentication and its aliases are described below.
-- The Python CLI prefers replaceable `SUB2API_ADMIN_TOKEN`, then `SUB2API_JWT`, then the legacy API-key variable. In auto mode, a token beginning with `admin-` is sent as `x-api-key`; set `SUB2API_AUTH_MODE=bearer` or `api-key` to override. No credential is stored in this skill.
+- The Python CLI prefers replaceable `SUB2API_ADMIN_TOKEN`, then `SUB2API_JWT`, then the legacy API-key variable. In auto mode, a token beginning with `admin-` is sent as `x-api-key`; set `SUB2API_AUTH_MODE=bearer` or `api-key` to override. When no explicit token is set, the Python CLI reads the native macOS Keychain (`security`) or Linux Secret Service (`secret-tool`) and never writes the credential to disk.
 - If the API returns `INVALID_ADMIN_KEY`, ask the user to regenerate the admin API key. If using JWT, log in as an admin user and copy the `access_token` from `POST /api/v1/auth/login`.
 - `accounts export` includes credentials and tokens. Prefer `--file` and avoid printing exports in chat.
 - The Python CLI redacts Authorization, API keys, OAuth credentials, proxy credentials, cookies, and token-like values in output and errors.
