@@ -90,9 +90,9 @@ func prepareChatContract(cfg *config.Config, c *gin.Context, body []byte, branch
 	return plan, nil
 }
 
-func (p chatContractPlan) convert(req *apicompat.ChatCompletionsRequest) (*apicompat.ResponsesRequest, error) {
+func (p chatContractPlan) convert(cfg *config.Config, req *apicompat.ChatCompletionsRequest) (*apicompat.ResponsesRequest, error) {
 	if p.constraints == nil {
-		return apicompat.ChatCompletionsToResponses(req)
+		return chatCompletionsToResponses(cfg, req)
 	}
 	local := *req
 	p.constraints.ApplyToChat(&local)
