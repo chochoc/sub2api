@@ -462,6 +462,14 @@ make check-architecture-index
 
 <!-- architecture-change-index:start -->
 
+### 2026-10-31 · UPSTREAM-SECURITY-020 · 修复同步分支的前端安全门禁
+
+- 原因与行为：GitHub frontend-security 报告 Vue I18n、decode-uri-component 和 follow-redirects 新增高危漏洞。升级 Vue I18n 与消息编译器至 11.4.16，传递依赖最低修复版本分别为 0.5.1、1.16.2，保持既有漏洞检查和例外策略；套餐卡片回归改为验证实际翻译文案，保留期限/布局/购买动作断言。
+- 代码/配置：`frontend/package.json`、`frontend/pnpm-lock.yaml`、`frontend/src/components/payment/__tests__/SubscriptionPlanCard.spec.ts`。
+- 关联：本指南 §7/§9、[同步记录](UPSTREAM_SYNC_20261031.md) 的合入前安全门禁修复。无需数据库迁移，不更新生产或本地运行二进制。
+- 验证：同 CI 参数的 production audit 及既有例外检查通过；frozen-lockfile 安装、lint/typecheck、576 项 critical、3,011 项全量、套餐卡片定向 9 项和构建通过；远端检查以追加提交的 GitHub CI 为准，不把已有 xlsx 例外计为零漏洞。
+
+
 ### 2026-10-31 · UPSTREAM-SYNC-019 · 合并官方 v0.2.19 并保留 Fork 定制
 
 - 原因与行为：官方基线由 v0.2.15 / `3a6fd1c9db07203ca308aaba69e502bc1f35b307` 升至 v0.2.19 / `dece26153621959ccd7635814f4b2d08304e681a`；在独立同步分支保留当前管理员工具提交 `c92175f2b`。引入受限管理密钥、分组多语言、Gemini 显式缓存与租约、图片按张计费和平台/协议/安全修复。
