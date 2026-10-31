@@ -1,5 +1,7 @@
 # 本机源码编译与 IP HTTPS 部署
 
+> **当前更新（2026-10-31）**：已部署 `0.2.19-custom.1-key-model-test-local-dirty` 并开启 API Key 模型测试，入口仍为 `https://127.0.0.1:8443/keys`。本地真实网关＋模拟上游验收通过，服务保持运行；产物摘要、备份、修复和限制见 [API Key 模型测试本地验收](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md)。下文保留早期部署过程，旧版本和旧测试数字不代表当前产物。
+
 > 2026-10-02：当前工作区源码已构建并启动，入口为 **https://127.0.0.1:8443**，无域名。健康检查、前端资源、管理员登录、无 Key 拒绝及停止/重启已验证。仅供本机隔离验证，不宣称生产发布或真实上游验收通过。
 
 遵守 [开发规范](DEVELOPMENT_RULES.md)、[架构指南](ARCHITECTURE_AND_MODIFICATION_GUIDE.md) 与 [入口安全说明](../deploy/EDGE_SECURITY.md)。基线 HEAD 为 `b735bd4b47bff5a9f2382e672632f8bc7dd70795`，构建包含未提交修改，版本标记 `0.2.12-local-dirty`；没有切换旧提交或下载 Sub2API 发布二进制/镜像替代源码。

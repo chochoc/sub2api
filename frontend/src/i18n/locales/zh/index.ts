@@ -6,8 +6,10 @@ import channelMonitorV2 from './channelMonitorV2'
 import batchImage from './batchImage'
 import admin from './admin'
 import misc from './misc'
+import keyModelTest from './keyModelTest'
 
 export default {
+  keyModelTest,
   adminAccessKeys,
   ...landing,
   ...common,

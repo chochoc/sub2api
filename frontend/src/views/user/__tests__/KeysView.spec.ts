@@ -6,6 +6,15 @@ import type { ApiKey } from '@/types'
 import { keysAPI } from '@/api'
 import KeysView from '../KeysView.vue'
 
+const modelTestFeature = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@/features/key-model-test', () => ({
+  get KEY_MODEL_TEST_ENABLED() { return modelTestFeature.enabled },
+  KeyModelTestModal: {
+    name: 'KeyModelTestModal', props: ['keyId', 'show'], emits: ['close'],
+    template: '<div data-test="model-test-modal"><button @click="$emit(\'close\')">Close test</button></div>'
+  }
+}))
+
 const {
   listKeys,
   updateKey,
@@ -268,6 +277,7 @@ const getButtonByText = (wrapper: VueWrapper, text: string) => {
 
 describe('user KeysView column settings', () => {
   beforeEach(() => {
+    modelTestFeature.enabled = false
     localStorage.clear()
 
     listKeys.mockReset()
@@ -295,6 +305,25 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it('keeps model tests absent when the build switch is off', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-test="test-key-models"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="model-test-modal"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('opens the selected key by ID without passing its secret to the modal', async () => {
+    modelTestFeature.enabled = true
+    const wrapper = await mountView()
+    await wrapper.get('[data-test="test-key-models"]').trigger('click')
+    const modal = wrapper.getComponent({ name: 'KeyModelTestModal' })
+    expect(modal.props()).toEqual({ keyId: 1, show: true })
+    expect(JSON.stringify(modal.props())).not.toContain('sk-test-key')
+    modal.vm.$emit('close'); await nextTick()
+    expect(wrapper.find('[data-test="model-test-modal"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it.each([
