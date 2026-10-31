@@ -400,6 +400,16 @@
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
               </button>
+              <button
+                v-if="KEY_MODEL_TEST_ENABLED"
+                type="button"
+                data-test="test-key-models"
+                @click="modelTestKeyId = row.id"
+                class="flex min-h-11 min-w-11 flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+              >
+                <Icon name="beaker" size="sm" />
+                <span class="text-xs">{{ t('keyModelTest.test') }}</span>
+              </button>
               <!-- Import to CC Switch Button -->
               <button
                 v-if="!publicSettings?.hide_ccs_import_button"
@@ -1069,6 +1079,13 @@
       @cancel="showResetRateLimitDialog = false"
     />
 
+    <KeyModelTestModal
+      v-if="KEY_MODEL_TEST_ENABLED && modelTestKeyId !== null"
+      :show="true"
+      :key-id="modelTestKeyId"
+      @close="modelTestKeyId = null"
+    />
+
     <!-- Use Key Modal -->
     <UseKeyModal
       :show="showUseKeyModal"
@@ -1205,6 +1222,9 @@
 	import { useOnboardingStore } from '@/stores/onboarding'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { KEY_MODEL_TEST_ENABLED, KeyModelTestModal } from '@/features/key-model-test'
+
+const modelTestKeyId = ref<number | null>(null)
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'

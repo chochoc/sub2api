@@ -38,6 +38,8 @@
 | [seedance-api.md](seedance-api.md) | Ark 原生视频接口与轮询结算；对应 `handler/seedance.go`、`service/seedance.go`。 |
 | [PAYMENT_CN.md](PAYMENT_CN.md)、[PAYMENT.md](PAYMENT.md) | 内置支付配置与订单操作；对应 `routes/payment.go`、`service/payment*.go`、`internal/payment/`。 |
 | [管理支付集成 API](ADMIN_PAYMENT_INTEGRATION_API.md) | 外部系统充值、兑换幂等和嵌入页参数；对应 `handler/admin/redeem_handler.go`、`service/idempotency.go`、`frontend/src/utils/embedded-url.ts`。 |
+| [API Key 模型测试技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) | 用户密钥页模型发现、文本/图片单项与串行批量测试；独立前端模块使用现有 Key 网关，正常计费，无后端或数据库变更；真实上游/账务验收待完成。 |
+| [API Key 模型测试本地验收](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md) | 开启功能的源码嵌入部署、六种协议真实本地网关＋模拟上游验收、使用时间与 DONE 兼容修复；服务保持本机运行，真实供应商及生产发布未验收。 |
 | [插件开发教程](PLUGIN_DEVELOPMENT.md)、[公开插件协议](../backend/pkg/pluginapi/README.md) | `.s2plugin`、进程协议和宿主边界；公开定义在 `backend/pkg/pluginapi/v1/`。 |
 | [插件开发](../backend/pkg/pluginapi/docs/development.md)、[UI Bridge](../backend/pkg/pluginapi/docs/ui-bridge.md)、[包格式](../backend/pkg/pluginapi/docs/package-format.md)、[安全边界](../backend/pkg/pluginapi/docs/security.md) | 插件详细契约；宿主实现 `service/plugin_*.go`。 |
 | [渠道监控默认值](channel-monitor-v2-safe-defaults.md) | V1/V2、低负载历史回填与错误去重；对应 `service/channel_monitor_v2_aggregator.go` 及 repository。 |
@@ -336,6 +338,12 @@ router/index.ts → views/ 或已有 features/ 页面 → components/ + composab
 4. 同步 `src/i18n/locales/zh/` 与 `en/` 对应模块，检查主题、移动端、键盘和页面标题。
 5. 做受影响 Vitest/类型/lint/build 验证，并实际检查 UI；更新本指南相应地图及 §11。
 
+### 7.3.1 用户 Key 模型测试
+
+`frontend/src/features/key-model-test/` 通过 KeysView 的少量入口接入。构建变量 `VITE_KEY_MODEL_TEST_ENABLED` 只有精确值 `true` 时启用，缺省关闭；更改须重建前端/嵌入产物。弹窗用 `keysAPI.getById` 读取用户自己的 Key，再通过独立 fetch 和 `buildGatewayUrl` 调用 `/v1/models`、Responses/Chat/Messages/Gemini/Images。网关请求使用所选 Key，不能使用会注入面板 JWT 的 `apiClient`。
+
+测试沿用现有 API Key 鉴权、IP、模型白名单、分组、调度和正常计费。模型目录表示声明可见而非实时可用，未知别名手动选协议。批量串行、最多 50 项，图片需要确认；前端不自动重试生成请求或轮流尝试端点。结果仅在弹窗内存，关闭/切换/卸载取消请求并释放预览。无新的后端 API、数据库迁移、插件能力或依赖。接口、限制、测试和发布前置见专门方案 §5–§11。
+
 ### 7.4 页面与后端关联速查
 
 | 功能 | 前端入口（`frontend/src/`） | 后端入口（`backend/internal/`） |
@@ -461,6 +469,59 @@ make check-architecture-index
 历史索引保留追溯信息；移动/删除后修订正文入口，历史条目注明替代位置。验证结果可链接专门报告。索引不是代码 diff 的全文复制，也不能用“杂项”“同上”“已同步”替代行为说明。
 
 <!-- architecture-change-index:start -->
+
+### 2026-10-31 · KEY-MODEL-TEST-001 · 用户 API Key 模型测试
+
+- 原因与行为：密钥页新增可关闭的测试入口；独立前端模块通过当前 Key 发现模型并执行文本/图片单项和串行批量请求，支持 SSE、协议终态验证、端点覆盖、费用确认、取消、有界读取和有限预览。真实调用沿用现有鉴权/调度/计费，无后端或持久化迁移。
+- 分支与兼容：功能分支从同步 commit `7090857956d6d7ec6a97dfc19a06688f025f4caf` 建立；实现时同步分支尚未合入 main；现已通过 CI 经 PR #2 合入，功能分支以普通 merge 吸收 main，生产升级 Gate 仍是发布前置。构建变量默认 false，不改变已有部署页面和网关协议。
+- 关联：本指南 §1/§7.3.1/§7.4；[技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) 记录类型、协议、资源预算、测试及回滚。运行时未增加秘密持久化或面板 JWT 到网关的路径。
+- 验证：首次离线检查为 critical 578 项、功能与 KeysView 107 项、全套 3,092 项；本地部署修复后为 578 / 113 / 3,098 项，lint/typecheck、开启功能构建和 embed web 测试通过。首次开/关构建、Chrome 模拟网关交互及工作区/暂存区索引 Gate 通过。追加真实本地部署验收见下条及专门方案 §11.5。真实供应商、真实收费和生产部署未验证；同步 PR #2 已合入，生产升级前置仍待完成。
+- 变更代码路径（逐文件；包含测试和配置）：
+- `frontend/.env.example`
+- `frontend/src/features/key-model-test/__tests__/KeyModelTestModal.spec.ts`
+- `frontend/src/features/key-model-test/__tests__/fixtures.ts`
+- `frontend/src/features/key-model-test/__tests__/gatewayClient.spec.ts`
+- `frontend/src/features/key-model-test/__tests__/imagePreview.spec.ts`
+- `frontend/src/features/key-model-test/__tests__/modelCatalog.spec.ts`
+- `frontend/src/features/key-model-test/__tests__/protocols.spec.ts`
+- `frontend/src/features/key-model-test/__tests__/sse.spec.ts`
+- `frontend/src/features/key-model-test/__tests__/testProfiles.spec.ts`
+- `frontend/src/features/key-model-test/__tests__/useKeyModelTest.spec.ts`
+- `frontend/src/features/key-model-test/components/KeyModelTestModal.vue`
+- `frontend/src/features/key-model-test/components/ModelTestResult.vue`
+- `frontend/src/features/key-model-test/components/ModelTestTable.vue`
+- `frontend/src/features/key-model-test/config.ts`
+- `frontend/src/features/key-model-test/gatewayClient.ts`
+- `frontend/src/features/key-model-test/imagePreview.ts`
+- `frontend/src/features/key-model-test/index.ts`
+- `frontend/src/features/key-model-test/modelCatalog.ts`
+- `frontend/src/features/key-model-test/protocols/chatCompletions.ts`
+- `frontend/src/features/key-model-test/protocols/common.ts`
+- `frontend/src/features/key-model-test/protocols/gemini.ts`
+- `frontend/src/features/key-model-test/protocols/images.ts`
+- `frontend/src/features/key-model-test/protocols/messages.ts`
+- `frontend/src/features/key-model-test/protocols/responses.ts`
+- `frontend/src/features/key-model-test/protocols/sse.ts`
+- `frontend/src/features/key-model-test/protocols/types.ts`
+- `frontend/src/features/key-model-test/resultSanitizer.ts`
+- `frontend/src/features/key-model-test/testProfiles.ts`
+- `frontend/src/features/key-model-test/types.ts`
+- `frontend/src/features/key-model-test/useKeyModelTest.ts`
+- `frontend/src/i18n/locales/en/index.ts`
+- `frontend/src/i18n/locales/en/keyModelTest.ts`
+- `frontend/src/i18n/locales/zh/index.ts`
+- `frontend/src/i18n/locales/zh/keyModelTest.ts`
+- `frontend/src/views/user/KeysView.vue`
+- `frontend/src/views/user/__tests__/KeysView.spec.ts`
+- `frontend/src/vite-env.d.ts`
+
+
+### 2026-10-31 · KEY-MODEL-TEST-002 · 本地部署及真实网关兼容修复
+
+- 原因与行为：真实部署发现 Key 的使用时间更新使配置检查误触发，以及 Responses 转换流末尾的 DONE 标记被当作非法 JSON；分别改为比较稳定配置字段、接受可选 DONE 且仍要求正常 completed 终态和文本。
+- 代码与回归：`frontend/src/features/key-model-test/useKeyModelTest.ts`、`frontend/src/features/key-model-test/protocols/responses.ts`、`frontend/src/features/key-model-test/__tests__/useKeyModelTest.spec.ts`、`frontend/src/features/key-model-test/__tests__/protocols.spec.ts`。
+- 部署与验证：开启开关的源码 embed 版本运行于本机 8443/18080，保留升级前私有备份。真实面板/网关配合隔离模拟上游完成 10 个协议场景、串行批量、图片预览、权限/IP/余额拒绝及 23 条用量归属检查，临时资源清理成功。lint/typecheck、578 critical、113 定向、3,098 全量测试、构建/embed web 和架构索引检查通过。
+- 关联与边界：[本地验收记录](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md)、[技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) §6.4/§7.3/§11.5、[本地部署指南](LOCAL_SOURCE_HTTPS_DEPLOYMENT.md)。服务保持运行，无后端业务变更；未调用真实供应商，未验证真实收费或生产升级；本地验收时未提交/推送/生产发布，后续提交及评审状态以 Git 记录为准。
 
 ### 2026-10-31 · UPSTREAM-SECURITY-020 · 修复同步分支的前端安全门禁
 
