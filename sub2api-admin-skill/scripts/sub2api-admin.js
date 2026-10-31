@@ -2,14 +2,50 @@
 
 const fs = require("fs");
 const path = require("path");
+const cp = require("child_process");
 
-const BASE_URL = (process.env.SUB2API_BASE_URL || "").replace(/\/$/, "");
-const ADMIN_API_KEY = process.env.SUB2API_ADMIN_API_KEY || "";
-const ADMIN_JWT = process.env.SUB2API_JWT || "";
+function configFile() {
+  if (process.env.SUB2API_CONFIG_FILE) return process.env.SUB2API_CONFIG_FILE;
+  const codexHome = process.env.CODEX_HOME || path.join(require("os").homedir(), ".codex");
+  return path.join(codexHome, "sub2api-admin", "config.json");
+}
+
+function loadConfig() {
+  try {
+    const value = JSON.parse(fs.readFileSync(configFile(), "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("config must be an object");
+    return value;
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw new Error(`Invalid Sub2API config file: ${configFile()}`);
+  }
+}
+
+const CONFIG = loadConfig();
+const BASE_URL = (process.env.SUB2API_BASE_URL || CONFIG.base_url || "").replace(/\/$/, "");
+function keychainToken() {
+  const service = process.env.SUB2API_KEYCHAIN_SERVICE || CONFIG.keychain_service || "sub2api-admin";
+  const account = process.env.SUB2API_KEYCHAIN_ACCOUNT || CONFIG.keychain_account || BASE_URL;
+  if (process.platform === "darwin") {
+    try { return cp.execFileSync("security", ["find-generic-password", "-s", service, "-a", account, "-w"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; }
+  }
+  if (process.platform === "linux") {
+    try { return cp.execFileSync("secret-tool", ["lookup", "service", service, "account", account], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; }
+  }
+  return "";
+}
+
+const EXPLICIT_TOKEN = process.env.SUB2API_ADMIN_TOKEN || "";
+const KEYCHAIN_TOKEN = (!EXPLICIT_TOKEN && !process.env.SUB2API_JWT && !process.env.SUB2API_ADMIN_API_KEY && process.env.SUB2API_KEYCHAIN !== "false") ? keychainToken() : "";
+const RAW_TOKEN = process.env.SUB2API_ADMIN_API_KEY || process.env.SUB2API_JWT || EXPLICIT_TOKEN || KEYCHAIN_TOKEN;
+const AUTH_MODE = process.env.SUB2API_AUTH_MODE || CONFIG.auth_mode || "auto";
+const USE_API_KEY = AUTH_MODE === "api-key" || (AUTH_MODE === "auto" && RAW_TOKEN.toLowerCase().startsWith("admin-"));
+const ADMIN_API_KEY = USE_API_KEY ? RAW_TOKEN : "";
+const ADMIN_JWT = USE_API_KEY ? "" : RAW_TOKEN;
 
 function usage() {
   console.log(`Usage:
-  sub2api-admin.js accounts list [--page-size 200] [--page N] [--search TEXT] [--platform openai] [--type oauth] [--status active] [--group NAME] [--privacy-mode MODE] [--sort-by name] [--sort-order asc]
+  sub2api-admin.js accounts list [--page-size 200] [--page N] [--search TEXT] [--platform openai] [--type oauth] [--status active] [--group NAME] [--privacy-mode MODE] [--include-scheduler-score true] [--sort-by name] [--sort-order asc]
   sub2api-admin.js accounts export [--ids 1,2] [--file accounts.json] [--include-proxies false] [list filters...]
   sub2api-admin.js accounts import-data --file accounts.json [--skip-default-group-bind]
   sub2api-admin.js accounts create --json '{...}' | --file account.json
@@ -189,6 +225,7 @@ async function listAccounts(options = {}) {
     status: options.status,
     group: options.group,
     privacy_mode: options.privacyMode,
+    include_scheduler_score: options.includeSchedulerScore ? 1 : undefined,
   };
   return apiRequest("GET", `/api/v1/admin/accounts${encodeQuery(params)}`);
 }
@@ -245,6 +282,7 @@ function accountListOptions(flags) {
     sortBy: flags["sort-by"] || "name",
     sortOrder: flags["sort-order"] || "asc",
     lite: flags.lite === undefined ? true : parseBool(flags.lite, "--lite"),
+    includeSchedulerScore: flags["include-scheduler-score"] === undefined ? false : parseBool(flags["include-scheduler-score"], "--include-scheduler-score"),
   };
 }
 
@@ -296,6 +334,7 @@ async function accountData(flags) {
       "privacy-mode": "privacy_mode",
       "sort-by": "sort_by",
       "sort-order": "sort_order",
+      "include-scheduler-score": "include_scheduler_score",
     };
     for (const [flag, param] of Object.entries(map)) {
       if (flags[flag]) params[param] = flags[flag];
@@ -712,6 +751,9 @@ async function commandApi(args) {
   const pathname = args.positional[2];
   if (!method || !pathname) throw new Error("api requires <GET|POST|PUT|DELETE> <admin-path>");
   const body = readJsonPayload(args.flags, { required: false });
+  if (method.toUpperCase() !== "GET" && !args.flags.confirm) {
+    throw new Error("api write requires --confirm");
+  }
   printJson(await adminRequest(method.toUpperCase(), pathname, body));
 }
 

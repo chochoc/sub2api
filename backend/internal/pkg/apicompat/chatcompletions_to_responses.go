@@ -18,15 +18,26 @@ type chatMessageContent struct {
 // true. store is always false and reasoning.encrypted_content is always
 // included so that the response translator has full context.
 func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
-	return ChatCompletionsToResponsesWithOptions(req, ChatToResponsesOptions{})
+	return ChatCompletionsToResponsesWithMinOutputTokens(req, DefaultMinMaxOutputTokens)
+}
+
+// ChatCompletionsToResponsesWithMinOutputTokens converts a Chat Completions
+// request using the supplied max_output_tokens floor.
+func ChatCompletionsToResponsesWithMinOutputTokens(req *ChatCompletionsRequest, minOutputTokens int) (*ResponsesRequest, error) {
+	return ChatCompletionsToResponsesWithOptions(req, ChatToResponsesOptions{MinOutputTokens: minOutputTokens})
 }
 
 type ChatToResponsesOptions struct {
+	MinOutputTokens         int
 	PreserveMaxOutputTokens bool
 	NormalizeFunctionChoice bool
 }
 
 func ChatCompletionsToResponsesWithOptions(req *ChatCompletionsRequest, opts ChatToResponsesOptions) (*ResponsesRequest, error) {
+	minOutputTokens := opts.MinOutputTokens
+	if minOutputTokens <= 0 {
+		minOutputTokens = DefaultMinMaxOutputTokens
+	}
 	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, req.ReasoningEffort); err != nil {
 		return nil, err
 	}
@@ -71,8 +82,8 @@ func ChatCompletionsToResponsesWithOptions(req *ChatCompletionsRequest, opts Cha
 	}
 	if maxTokens > 0 {
 		v := maxTokens
-		if !opts.PreserveMaxOutputTokens && v < minMaxOutputTokens {
-			v = minMaxOutputTokens
+		if !opts.PreserveMaxOutputTokens && v < minOutputTokens {
+			v = minOutputTokens
 		}
 		out.MaxOutputTokens = &v
 	}

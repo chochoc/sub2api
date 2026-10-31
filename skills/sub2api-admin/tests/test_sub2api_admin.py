@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -28,6 +29,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class OpsTests(unittest.TestCase):
+    def test_keychain_lookup_never_prints_secret(self):
+        completed = type("Completed", (), {"returncode": 0, "stdout": "admin-secret-value\n"})()
+        with patch.object(ops.platform, "system", return_value="Darwin"), patch.object(ops.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(ops.keychain_token("https://host"), "admin-secret-value")
+        self.assertEqual(run.call_args.args[0][:4], ["security", "find-generic-password", "-s", "sub2api-admin"])
+
+    def test_fetch_all_pages_rejects_repeated_page(self):
+        class Client:
+            def request(self, *_args, **_kwargs):
+                return {"data": {"items": [{"id": 1}], "total": 3}}
+        with self.assertRaises(ops.AdminError):
+            ops.fetch_all_pages(Client(), "/admin/users", {"page_size": 1}, max_pages=3)
+
+    def test_page_items_unwraps_envelope(self):
+        rows, total = ops.page_items({"data": {"items": [{"id": 2}], "total": 1}})
+        self.assertEqual(rows, [{"id": 2}])
+        self.assertEqual(total, 1)
+
     def test_duration_and_classification(self):
         start = ops.parse_since("1h")
         self.assertEqual((ops.dt.datetime.now(ops.dt.timezone.utc) - start).seconds // 3600, 1)

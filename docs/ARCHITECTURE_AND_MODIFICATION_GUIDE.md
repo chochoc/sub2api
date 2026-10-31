@@ -25,6 +25,8 @@
 | --- | --- |
 | [README_CN.md](../README_CN.md)、[README.md](../README.md) | 官方项目能力、客户端接入和部署概览；能力需对照 `backend/internal/server/routes/`，不能把 README 赞助商广告当作项目功能。 |
 | [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md) | 强制开发规范、分层、不变量、验证门禁、索引维护与评审阻断项。 |
+| [受限管理员密钥](admin-api-keys.md)、[GPT-5.5 订阅退役](OPENAI_GPT55_RETIREMENT.md) | v0.2.19 管理密钥权限/资源边界及订阅模型退役后的路由兼容说明。 |
+| [v0.2.19 本地同步记录](UPSTREAM_SYNC_20261031.md) | 固定官方发布 commit 的合并范围、冲突决策、迁移/配置变化和实际验证结果。 |
 | [定制开发与上游同步手册](SUB2API_CUSTOMIZATION_AND_UPSTREAM_SYNC_GUIDE.md) | 本 Fork 的开发、上游合并和发布流程；当前分支/远端以 Git 实际状态为准。 |
 | [DEV_GUIDE.md](../DEV_GUIDE.md) | 开发环境、工具链和常见问题；包含历史 Windows 环境示例，非统一部署配置，差异见 §10。 |
 | [数据库迁移说明](../backend/migrations/README.md) | SQL 文件命名和校验和；实际执行器是 `backend/internal/repository/migrations_runner.go`，旧命令差异见 §10。 |
@@ -53,7 +55,7 @@
 
 Sub2API 将平台生成的 API Key 请求分发到上游账户，负责鉴权、分组准入、调度、协议转换、并发、计量与计费，同时提供用户控制台、管理控制台和后台任务。
 
-- 后端：单个 Go 模块，`backend/go.mod` 当前声明 Go **1.27.0**，Gin HTTP、Wire 装配、Ent 与原生 SQL；业务数据库为 PostgreSQL，Redis 承担缓存、计数、锁和任务队列等职责。
+- 后端：单个 Go 模块，`backend/go.mod` 当前声明 Go **1.27.3**，Gin HTTP、Wire 装配、Ent 与原生 SQL；业务数据库为 PostgreSQL，Redis 承担缓存、计数、锁和任务队列等职责。
 - 前端：`frontend/package.json` 中的 Vue 3、TypeScript、Vue Router、Pinia、Vite、Tailwind CSS 3、vue-i18n；包管理器 pnpm。CI 当前使用 Node 20、pnpm 9。
 - 发布：Go 服务可通过 `embed` build tag 嵌入前端；普通后端构建与嵌入构建是不同产物。多实例正确性依赖共享数据库/Redis以及一致的必要密钥，不能仅靠进程内缓存。
 
@@ -132,7 +134,7 @@ flowchart LR
 | --- | --- | --- |
 | 登录、刷新、注册与认证回调 | `auth.go` | 公开入口配限流；需登录的子路由使用 JWT。身份实现还需读 `service/auth*.go`。 |
 | 用户控制台 `/api/v1` | `user.go` | JWT、用户状态/会话检查、面板限流与所有权；典型返回 `{code,message,data}`。 |
-| 管理接口 `/api/v1/admin` | `admin.go` | Admin Auth 支持管理员 JWT 或管理员 `x-api-key`，还有管理审计/合规及部分敏感操作的 step-up。普通网关 Key 不是管理员 Key。 |
+| 管理接口 `/api/v1/admin` | `admin.go` | Admin Auth 支持管理员 JWT 或管理员 `x-api-key`，还有管理审计/合规及部分敏感操作的 step-up。普通网关 Key 不是管理员 Key。v0.2.19 新增 `adm_sc_` 受限管理密钥，按精确路由动作、资源策略、有效期与 IP 白名单授权；未登记的定制路由默认拒绝，完整管理员 JWT/旧管理密钥仍可使用既有接口。 |
 | 模型广场 | `model_plaza.go` | Optional JWT 与公开设置控制，不能因未登录可读而开放写操作。 |
 | AI 网关 | `gateway.go` | API Key、分组/模型准入、协议特定错误结构；不套面板 envelope。 |
 | 支付 | `payment.go` | 用户订单 JWT、管理接口 Admin Auth；webhook 不使用面板 JWT，而由支付验签与订单校验保护。 |
@@ -216,7 +218,7 @@ Handler 不只是参数转发：这里维护请求快照、平台归属、并发
 OpenAI 契约修订的当前边界（2026-10-02 复核）：
 
 - Anthropic Chat 转换有两个入口：`service/openai_gateway_chat_completions_anthropic_native.go` 的 CN/OpenCode 原生桥，以及 `service/gateway_forward_as_chat_completions.go` 的 Anthropic 平台桥。二者都经过 Chat → Responses → Anthropic，恢复 stop/max 时必须分别接线并检查最终出站 body。
-- `pkg/apicompat/chat_contract.go` 在 strict 模式保留参数 presence、校验工具引用及 max 优先级；`service/openai_chat_contract.go` 按每次实际分支重新判断。`ChatCompletionsToResponsesWithOptions` 可保留正数小上限，旧 wrapper 仍有 128 floor。Codex 仍删除上限，strict 在删除前拒绝显式 max，不将拒绝当成执行成功。既有 incomplete/max_output_tokens → length 映射保持不变。
+- `pkg/apicompat/chat_contract.go` 在 strict 模式保留参数 presence、校验工具引用及 max 优先级；`service/openai_chat_contract.go` 按每次实际分支重新判断。`ChatCompletionsToResponsesWithOptions` 可保留正数小上限，legacy 模式采用 `gateway.min_output_tokens`（默认 128，配置最小 16），strict 模式保留客户端正数 max 原值，不应用该 floor。Codex 仍删除上限，strict 在删除前拒绝显式 max，不将拒绝当成执行成功。既有 incomplete/max_output_tokens → length 映射保持不变。
 - `service/openai_chat_text_contract.go` 将请求级扫描器接入主 Chat JSON/SSE，限定 strict/text 单 choice 普通文本等场景；raw 原生保留 stop，两条 Anthropic 桥恢复 stop/max 后检查最终请求体。配置默认 legacy/reject/30，修改后须重启；默认部署不启用模拟。意外工具/音频/refusal 输出作为错误，不伪装成成功。
 - `pkg/apicompat/types.go`、`responses_to_chatcompletions.go` 和 `chatcompletions_responses_bridge.go` 保留 `cached_tokens` 的 JSON key presence；上游明确的 `cached_tokens: 0` 继续出现在 Chat JSON/SSE，真正缺失仍保持缺失，不改变 `OpenAIUsage` 数值或计费。
 - 最新模型校验可能在本地产生 400：GPT-6.1 Sol 禁用推理/Chat-only 工具请求、Claude 5.5 强制工具选择等；不能将所有 tools 400 归为上游 schema 错误。以实际映射模型及出站分支复现。
@@ -249,6 +251,8 @@ OpenAI 契约修订的当前边界（2026-10-02 复核）：
 修改价格或计费字段须同步：请求模型/计费模型、前端展示与类型、价格来源、历史统计、金额量化、订阅与余额路径、Key 配额、缓存失效、重复请求和失败恢复。不得把 `gateway_usage_billing.go` 的 legacy fallback 当成生产统一事务主路径。
 
 缓存验证还应独立核对上游 usage、客户端回程和账务桶。`pkg/apicompat/responses_to_chatcompletions.go::promptDetailsFromResponses` 已通过 presence 标记保留上游显式零；下游字段缺失仍表示上游未报告，不能填充为 0。`service/openai_gateway_chat_completions_anthropic_native.go` 当前按收到的 usage 存在性转发并归一化，不再仅依赖客户端 include_usage；presence 修复不证明用户反馈的低缓存命中率已经解决。复测口径见兼容性方案 §3 和 [cached_tokens 缺失修复方案](SUB2API_CACHED_TOKENS_PRESENCE_REMEDIATION.md)。
+
+v0.2.19 为 OpenAI/Composite 分组增加 `image_count_billing`（默认关闭），专用图片端点开启后按实际上游返回张数计费。Gemini 显式缓存资源由 `gemini_cached_content_repo.go` 和 `gemini_cached_content.go` 维护，绑定原用户、Key、分组与账号；创建/延长按存储时间计费，mutation lease 保护并发变更。
 
 ### 5.3 缓存与数据库演进
 
@@ -400,7 +404,7 @@ Vite 默认开发端口 `3000`、代理目标 `http://localhost:8080`，可由 `
 
 根 `make build` 按现有 Makefile 分别构建后端与前端，后端目标没有 `-tags embed`，因此**不是完整嵌入发行构建**。本地上例用于验证嵌入形态；正式版本/commit/date/BuildType 注入以 Dockerfile、发布 workflow 和 `backend/scripts/resolve-version.sh` 为准。
 
-本机无域名 HTTPS 部署流程见 [专门文档](LOCAL_SOURCE_HTTPS_DEPLOYMENT.md)。目标为 `https://127.0.0.1:8443` → 本机代理 → 回环 HTTP 应用；证书 SAN 必须包含 IP。本工作区的契约代码仍处于未完成状态：2026-10-02 实际构建发现 stop 文本模拟类型缺失、流处理调用参数不匹配，不能部署当前源码；不通过切换旧提交或使用发布二进制替代本次要求。
+本机无域名 HTTPS 部署流程见 [专门文档](LOCAL_SOURCE_HTTPS_DEPLOYMENT.md)。目标为 `https://127.0.0.1:8443` → 本机代理 → 回环 HTTP 应用；证书 SAN 必须包含 IP。2026-10-02 的契约编译阻断已由后续实现解除，历史过程保留在 §11 和部署文档。2026-10-31 的源码基线为 v0.2.19 加 Fork 定制，实际验证以 [本次同步记录](UPSTREAM_SYNC_20261031.md) 为准；历史部署记录不表示这次源码已部署。
 
 ### 9.2 测试入口及真实覆盖范围
 
@@ -457,6 +461,250 @@ make check-architecture-index
 历史索引保留追溯信息；移动/删除后修订正文入口，历史条目注明替代位置。验证结果可链接专门报告。索引不是代码 diff 的全文复制，也不能用“杂项”“同上”“已同步”替代行为说明。
 
 <!-- architecture-change-index:start -->
+
+### 2026-10-31 · UPSTREAM-SECURITY-020 · 修复同步分支的前端安全门禁
+
+- 原因与行为：GitHub frontend-security 报告 Vue I18n、decode-uri-component 和 follow-redirects 新增高危漏洞。升级 Vue I18n 与消息编译器至 11.4.16，传递依赖最低修复版本分别为 0.5.1、1.16.2，保持既有漏洞检查和例外策略；套餐卡片回归改为验证实际翻译文案，保留期限/布局/购买动作断言。
+- 代码/配置：`frontend/package.json`、`frontend/pnpm-lock.yaml`、`frontend/src/components/payment/__tests__/SubscriptionPlanCard.spec.ts`。
+- 关联：本指南 §7/§9、[同步记录](UPSTREAM_SYNC_20261031.md) 的合入前安全门禁修复。无需数据库迁移，不更新生产或本地运行二进制。
+- 验证：同 CI 参数的 production audit 及既有例外检查通过；frozen-lockfile 安装、lint/typecheck、576 项 critical、3,011 项全量、套餐卡片定向 9 项和构建通过；远端检查以追加提交的 GitHub CI 为准，不把已有 xlsx 例外计为零漏洞。
+
+
+### 2026-10-31 · UPSTREAM-SYNC-019 · 合并官方 v0.2.19 并保留 Fork 定制
+
+- 原因与行为：官方基线由 v0.2.15 / `3a6fd1c9db07203ca308aaba69e502bc1f35b307` 升至 v0.2.19 / `dece26153621959ccd7635814f4b2d08304e681a`；在独立同步分支保留当前管理员工具提交 `c92175f2b`。引入受限管理密钥、分组多语言、Gemini 显式缓存与租约、图片按张计费和平台/协议/安全修复。
+- 冲突决策：Chat strict 模式保留客户端 max 原值，legacy 模式使用官方配置 floor；保留 stop 文本 observer、有限收尾与真实 usage，并合并官方原始响应模型审计。保留 cached_tokens presence、定制别名、管理员 KEY CRUD 与文档追踪规则；Wire 从 provider 源重新生成，恢复管理 KEY handler 的 APIKeyService 注入。
+- 构建与兼容：Go 模块、三个 Dockerfile 和 CI 对齐官方 1.27.3，lint 2.14.0；版本为 `0.2.19-custom.1`。七个新 SQL 迁移保持前向新增，已有迁移未改写，尚未执行数据库迁移。受限管理密钥默认拒绝未登记的 Fork 扩展路由。
+- 关联：本指南 §1/§2/§3.3/§4.4/§5.2/§9，开发规范 §16–§19；[同步记录](UPSTREAM_SYNC_20261031.md) 提供完整冲突、依赖、配置、迁移、验证及回滚边界。验证：后端 unit、普通测试和 lint（0 issues）、前端 critical 576 项/全套 3011 项、前后端构建及 embed web 测试通过；两份管理工具测试与索引门禁通过。数据库 integration 因缺 Docker 跳过，未执行迁移演练、实际 UI 或真实上游验收，不宣称生产可发布。
+
+- .github：
+  `.github/workflows/backend-ci.yml`、`.github/workflows/release.yml`、`.github/workflows/security-scan.yml`。
+
+- assets：
+  `assets/partners/banners/wandapi-cn-dark.svg`、`assets/partners/banners/wandapi-cn.svg`、`assets/partners/banners/wandapi-en-dark.svg`、`assets/partners/banners/wandapi-en.svg`。
+  `assets/partners/logos/NiuProxy.jpg`、`assets/partners/logos/aimzoon.jpg`、`assets/partners/logos/chenju_ai.png`、`assets/partners/logos/modelflare.png`。
+  `assets/partners/logos/ooko.ai.png`、`assets/partners/logos/proxy4free.png`、`assets/partners/logos/soleapi.png`。
+
+- backend/Dockerfile：
+  `backend/Dockerfile`。
+
+- backend/cmd：
+  `backend/cmd/server/VERSION`、`backend/cmd/server/wire.go`、`backend/cmd/server/wire_gen.go`、`backend/cmd/server/wire_gen_test.go`。
+
+- backend/ent：
+  `backend/ent/group.go`、`backend/ent/group/group.go`、`backend/ent/group/where.go`、`backend/ent/group_create.go`。
+  `backend/ent/group_update.go`、`backend/ent/migrate/schema.go`、`backend/ent/mutation.go`、`backend/ent/runtime/runtime.go`。
+  `backend/ent/schema/group.go`。
+
+- backend/go.mod：
+  `backend/go.mod`。
+
+- backend/go.sum：
+  `backend/go.sum`。
+
+- backend/internal/config：
+  `backend/internal/config/config.go`、`backend/internal/config/config_test.go`。
+
+- backend/internal/domain：
+  `backend/internal/domain/constants.go`、`backend/internal/domain/constants_test.go`、`backend/internal/domain/group_i18n.go`、`backend/internal/domain/group_i18n_test.go`。
+
+- backend/internal/handler：
+  `backend/internal/handler/admin/account_codex_import.go`、`backend/internal/handler/admin/account_codex_import_test.go`、`backend/internal/handler/admin/account_handler.go`、`backend/internal/handler/admin/account_handler_available_models_test.go`。
+  `backend/internal/handler/admin/account_handler_grok_model_diagnostics_test.go`、`backend/internal/handler/admin/admin_helpers_test.go`、`backend/internal/handler/admin/announcement_handler.go`、`backend/internal/handler/admin/custom_admin_key_accounts.go`。
+  `backend/internal/handler/admin/custom_admin_key_accounts_test.go`、`backend/internal/handler/admin/custom_admin_key_codex_import.go`、`backend/internal/handler/admin/custom_admin_key_codex_import_test.go`、`backend/internal/handler/admin/custom_admin_key_commit_test.go`。
+  `backend/internal/handler/admin/custom_admin_key_group_models.go`、`backend/internal/handler/admin/custom_admin_key_proxies.go`、`backend/internal/handler/admin/custom_admin_key_proxies_test.go`、`backend/internal/handler/admin/custom_admin_key_users.go`。
+  `backend/internal/handler/admin/custom_admin_key_users_test.go`、`backend/internal/handler/admin/custom_admin_keys.go`、`backend/internal/handler/admin/custom_admin_keys_test.go`、`backend/internal/handler/admin/custom_legacy_admin_key_test.go`。
+  `backend/internal/handler/admin/group_handler.go`、`backend/internal/handler/admin/idempotency_helper.go`、`backend/internal/handler/admin/ops_dashboard_handler.go`、`backend/internal/handler/admin/promo_handler.go`。
+  `backend/internal/handler/admin/proxy_handler.go`、`backend/internal/handler/admin/scoped_admin_content_response.go`、`backend/internal/handler/admin/scoped_admin_content_response_test.go`、`backend/internal/handler/admin/scoped_admin_subscription_response.go`。
+  `backend/internal/handler/admin/scoped_admin_subscription_response_test.go`、`backend/internal/handler/admin/scoped_admin_usage_response.go`、`backend/internal/handler/admin/scoped_admin_usage_response_test.go`、`backend/internal/handler/admin/setting_handler_runtime.go`。
+  `backend/internal/handler/admin/subscription_handler.go`、`backend/internal/handler/admin/usage_handler.go`、`backend/internal/handler/admin/user_handler.go`、`backend/internal/handler/api_key_handler.go`。
+  `backend/internal/handler/available_channel_handler.go`、`backend/internal/handler/dto/account_mapper_redact_test.go`、`backend/internal/handler/dto/account_quota_service_account_test.go`、`backend/internal/handler/dto/group_localize.go`。
+  `backend/internal/handler/dto/group_localize_test.go`、`backend/internal/handler/dto/mappers.go`、`backend/internal/handler/dto/types.go`、`backend/internal/handler/endpoint.go`。
+  `backend/internal/handler/endpoint_test.go`、`backend/internal/handler/gateway_compat_stream_usage_test.go`、`backend/internal/handler/gateway_handler.go`、`backend/internal/handler/gateway_handler_chat_completions.go`。
+  `backend/internal/handler/gateway_handler_responses.go`、`backend/internal/handler/gateway_handler_warmup_intercept_unit_test.go`、`backend/internal/handler/gateway_models_test.go`、`backend/internal/handler/gemini_cached_content_bound_retry_test.go`。
+  `backend/internal/handler/gemini_cached_contents_billing_test.go`、`backend/internal/handler/gemini_cached_contents_handler.go`、`backend/internal/handler/gemini_cached_contents_handler_test.go`、`backend/internal/handler/gemini_client_cancel_test.go`。
+  `backend/internal/handler/gemini_image_generation_gate.go`、`backend/internal/handler/gemini_image_generation_gate_test.go`、`backend/internal/handler/gemini_mixed_models_test.go`、`backend/internal/handler/gemini_v1beta_handler.go`。
+  `backend/internal/handler/gemini_v1beta_handler_test.go`、`backend/internal/handler/gemini_vertex_models_test.go`、`backend/internal/handler/group_localize_test.go`、`backend/internal/handler/model_plaza_handler.go`。
+  `backend/internal/handler/model_plaza_handler_test.go`、`backend/internal/handler/no_account_error.go`、`backend/internal/handler/no_account_error_test.go`、`backend/internal/handler/openai_gateway_handler.go`。
+  `backend/internal/handler/ops_error_logger.go`、`backend/internal/handler/ops_error_logger_google_test.go`、`backend/internal/handler/payment_handler.go`、`backend/internal/handler/payment_webhook_handler.go`。
+  `backend/internal/handler/payment_webhook_handler_test.go`、`backend/internal/handler/redeem_handler.go`、`backend/internal/handler/security_audit_errors.go`、`backend/internal/handler/security_audit_order_test.go`。
+  `backend/internal/handler/single_account_retry_probe_unit_test.go`、`backend/internal/handler/subscription_handler.go`、`backend/internal/handler/usage_handler.go`、`backend/internal/handler/wire.go`。
+
+- backend/internal/payment：
+  `backend/internal/payment/provider/alipay.go`、`backend/internal/payment/provider/alipay_test.go`、`backend/internal/payment/provider/easypay.go`、`backend/internal/payment/provider/easypay_confirm_test.go`。
+  `backend/internal/payment/provider/easypay_query_test.go`、`backend/internal/payment/types.go`。
+
+- backend/internal/pkg：
+  `backend/internal/pkg/adminaccess/catalog.go`、`backend/internal/pkg/adminaccess/policy.go`、`backend/internal/pkg/adminaccess/policy_test.go`、`backend/internal/pkg/antigravity/claude_types.go`。
+  `backend/internal/pkg/antigravity/claude_types_test.go`、`backend/internal/pkg/antigravity/client.go`、`backend/internal/pkg/antigravity/client_test.go`、`backend/internal/pkg/antigravity/oauth.go`。
+  `backend/internal/pkg/antigravity/oauth_test.go`、`backend/internal/pkg/antigravity/request_transformer.go`、`backend/internal/pkg/antigravity/request_transformer_test.go`、`backend/internal/pkg/antigravity/response_transformer.go`。
+  `backend/internal/pkg/antigravity/response_transformer_malformed_test.go`、`backend/internal/pkg/antigravity/stream_transformer.go`、`backend/internal/pkg/antigravity/usage_contract_test.go`、`backend/internal/pkg/apicompat/anthropic_responses_test.go`。
+  `backend/internal/pkg/apicompat/anthropic_to_responses.go`、`backend/internal/pkg/apicompat/anthropic_to_responses_response.go`、`backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge.go`、`backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge_test.go`。
+  `backend/internal/pkg/apicompat/chatcompletions_responses_test.go`、`backend/internal/pkg/apicompat/chatcompletions_to_responses.go`、`backend/internal/pkg/apicompat/responses_to_anthropic_request.go`、`backend/internal/pkg/apicompat/types.go`。
+  `backend/internal/pkg/claude/constants.go`、`backend/internal/pkg/claude/constants_model_test.go`、`backend/internal/pkg/claude/effort_catalog.go`、`backend/internal/pkg/claude/effort_catalog_test.go`。
+  `backend/internal/pkg/gemini/models.go`、`backend/internal/pkg/gemini/models_test.go`、`backend/internal/pkg/geminicli/models.go`、`backend/internal/pkg/geminicli/models_test.go`。
+  `backend/internal/pkg/openai/constants.go`、`backend/internal/pkg/openai/request.go`、`backend/internal/pkg/openai/request_codex_identity_normalization_test.go`、`backend/internal/pkg/pagination/pagination.go`。
+  `backend/internal/pkg/pagination/pagination_test.go`、`backend/internal/pkg/response/response.go`、`backend/internal/pkg/response/response_test.go`。
+
+- backend/internal/repository：
+  `backend/internal/repository/account_repo.go`、`backend/internal/repository/account_repo_grok_managed_extra_integration_test.go`、`backend/internal/repository/account_repo_grok_managed_extra_test.go`、`backend/internal/repository/account_repo_grok_models.go`。
+  `backend/internal/repository/account_repo_grok_models_integration_test.go`、`backend/internal/repository/account_repo_grok_models_test.go`、`backend/internal/repository/account_repo_opencode_go_usage_test.go`、`backend/internal/repository/account_repo_upstream_billing_probe_update_test.go`。
+  `backend/internal/repository/api_key_repo.go`、`backend/internal/repository/api_key_repo_integration_test.go`、`backend/internal/repository/billing_inflight_cache.go`、`backend/internal/repository/billing_inflight_cache_test.go`。
+  `backend/internal/repository/custom_account_proxy_selection.go`、`backend/internal/repository/custom_account_proxy_selection_test.go`、`backend/internal/repository/custom_admin_key_group_models.go`、`backend/internal/repository/custom_admin_key_group_models_test.go`。
+  `backend/internal/repository/custom_admin_key_review_test.go`、`backend/internal/repository/custom_admin_key_scope.go`、`backend/internal/repository/custom_admin_key_scope_test.go`、`backend/internal/repository/custom_admin_key_transaction.go`。
+  `backend/internal/repository/custom_admin_keys.go`、`backend/internal/repository/custom_admin_keys_postgres_test.go`、`backend/internal/repository/custom_admin_keys_test.go`、`backend/internal/repository/custom_proxy_options.go`。
+  `backend/internal/repository/custom_proxy_sample_test.go`、`backend/internal/repository/custom_proxy_search.go`、`backend/internal/repository/gemini_cached_content_repo.go`、`backend/internal/repository/gemini_cached_content_repo_integration_test.go`。
+  `backend/internal/repository/group_repo.go`、`backend/internal/repository/group_repo_integration_test.go`、`backend/internal/repository/pagination_test.go`、`backend/internal/repository/scheduler_cache.go`。
+  `backend/internal/repository/scheduler_cache_snapshot_memo_unit_test.go`、`backend/internal/repository/scheduler_cache_test.go`、`backend/internal/repository/setting_repo.go`、`backend/internal/repository/simple_mode_default_groups.go`。
+  `backend/internal/repository/simple_mode_default_groups_integration_test.go`、`backend/internal/repository/usage_billing_repo.go`、`backend/internal/repository/usage_billing_repo_integration_test.go`、`backend/internal/repository/usage_billing_repo_unit_test.go`。
+  `backend/internal/repository/wire.go`。
+
+- backend/internal/securityaudit：
+  `backend/internal/securityaudit/prompt_handler.go`、`backend/internal/securityaudit/prompt_handler_test.go`。
+
+- backend/internal/server：
+  `backend/internal/server/api_contract_test.go`、`backend/internal/server/middleware/admin_auth.go`、`backend/internal/server/middleware/custom_admin_key_rate_limit_test.go`、`backend/internal/server/middleware/custom_admin_keys_test.go`。
+  `backend/internal/server/middleware/panel_rate_limit.go`、`backend/internal/server/routes/admin.go`、`backend/internal/server/routes/composite_platform_test.go`、`backend/internal/server/routes/custom_admin_key_access_test.go`。
+  `backend/internal/server/routes/custom_admin_key_group_models_test.go`、`backend/internal/server/routes/custom_admin_key_payment_rate_limit_test.go`、`backend/internal/server/routes/custom_admin_key_user_responses_test.go`、`backend/internal/server/routes/custom_admin_keys.go`。
+  `backend/internal/server/routes/custom_admin_keys_test.go`、`backend/internal/server/routes/gateway.go`、`backend/internal/server/routes/gateway_models_pinned_test.go`、`backend/internal/server/routes/payment.go`。
+  `backend/internal/server/routes/prompt_audit_route_coverage_test.go`。
+
+- backend/internal/service：
+  `backend/internal/service/account.go`、`backend/internal/service/account_kimi_coding_test.go`、`backend/internal/service/account_model_mapping_signature_test.go`、`backend/internal/service/account_quota_schedulable_test.go`。
+  `backend/internal/service/account_quota_service_account_test.go`、`backend/internal/service/account_shared_snapshot_test.go`、`backend/internal/service/account_stats_pricing_test.go`、`backend/internal/service/account_test_service.go`。
+  `backend/internal/service/account_test_service_antigravity_test.go`、`backend/internal/service/account_test_service_gemini_test.go`、`backend/internal/service/account_websearch_test.go`、`backend/internal/service/admin_account.go`。
+  `backend/internal/service/admin_account_grok_catalog_test.go`、`backend/internal/service/admin_group.go`、`backend/internal/service/admin_group_duplicate.go`、`backend/internal/service/admin_service.go`。
+  `backend/internal/service/admin_service_group_i18n_test.go`、`backend/internal/service/admin_service_group_test.go`、`backend/internal/service/admin_service_role_test.go`、`backend/internal/service/admin_user.go`。
+  `backend/internal/service/antigravity_gateway_claude.go`、`backend/internal/service/antigravity_gateway_compat.go`、`backend/internal/service/antigravity_gateway_gemini.go`、`backend/internal/service/antigravity_gateway_nonstream_malformed_test.go`。
+  `backend/internal/service/antigravity_gateway_retry.go`、`backend/internal/service/antigravity_gateway_service.go`、`backend/internal/service/antigravity_gateway_service_test.go`、`backend/internal/service/antigravity_gateway_streaming.go`。
+  `backend/internal/service/antigravity_gemini_thinking_variant.go`、`backend/internal/service/antigravity_gemini_thinking_variant_test.go`、`backend/internal/service/antigravity_image_test.go`、`backend/internal/service/antigravity_rate_limit_test.go`。
+  `backend/internal/service/api_key_auth_cache.go`、`backend/internal/service/api_key_auth_cache_impl.go`、`backend/internal/service/api_key_service.go`、`backend/internal/service/apicompat_config.go`。
+  `backend/internal/service/billing_cache_service.go`、`backend/internal/service/billing_inflight_reservation.go`、`backend/internal/service/billing_service.go`、`backend/internal/service/billing_service_test.go`。
+  `backend/internal/service/channel_available.go`、`backend/internal/service/channel_monitor_checker.go`、`backend/internal/service/channel_monitor_checker_body_test.go`、`backend/internal/service/channel_service.go`。
+  `backend/internal/service/channel_websearch_merge_test.go`、`backend/internal/service/cn_provider_probe_url_test.go`、`backend/internal/service/cn_provider_quota_service.go`、`backend/internal/service/cn_providers_test.go`。
+  `backend/internal/service/composite_model_route.go`、`backend/internal/service/composite_platform_test.go`、`backend/internal/service/composite_route_resolver.go`、`backend/internal/service/composite_route_resolver_test.go`。
+  `backend/internal/service/content_moderation.go`、`backend/internal/service/custom_admin_key_accounts.go`、`backend/internal/service/custom_admin_key_accounts_test.go`、`backend/internal/service/custom_admin_key_codex_import.go`。
+  `backend/internal/service/custom_admin_key_codex_import_test.go`、`backend/internal/service/custom_admin_key_group_models.go`、`backend/internal/service/custom_admin_key_group_models_test.go`、`backend/internal/service/custom_admin_key_proxy_selection.go`。
+  `backend/internal/service/custom_admin_key_proxy_selection_test.go`、`backend/internal/service/custom_admin_key_recovery_review_test.go`、`backend/internal/service/custom_admin_key_testdb_test.go`、`backend/internal/service/custom_admin_key_transaction.go`。
+  `backend/internal/service/custom_admin_key_transaction_test.go`、`backend/internal/service/custom_admin_keys.go`、`backend/internal/service/custom_admin_keys_test.go`、`backend/internal/service/custom_proxy_options.go`。
+  `backend/internal/service/deepseek_pricing_test.go`、`backend/internal/service/gateway_anthropic_base_url_test.go`、`backend/internal/service/gateway_anthropic_passthrough.go`、`backend/internal/service/gateway_bedrock.go`。
+  `backend/internal/service/gateway_billing_block.go`、`backend/internal/service/gateway_billing_block_test.go`、`backend/internal/service/gateway_billing_header_test.go`、`backend/internal/service/gateway_claude_oauth_body.go`。
+  `backend/internal/service/gateway_context_management_test.go`、`backend/internal/service/gateway_count_tokens.go`、`backend/internal/service/gateway_forward.go`、`backend/internal/service/gateway_forward_as_chat_completions.go`。
+  `backend/internal/service/gateway_forward_as_chat_completions_ping_test.go`、`backend/internal/service/gateway_forward_as_responses.go`、`backend/internal/service/gateway_forward_compat_client_disconnect_test.go`、`backend/internal/service/gateway_forward_compat_stream.go`。
+  `backend/internal/service/gateway_hotpath_optimization_test.go`、`backend/internal/service/gateway_image_reasoning_pricing_test.go`、`backend/internal/service/gateway_model_availability.go`、`backend/internal/service/gateway_request.go`。
+  `backend/internal/service/gateway_request_haiku55_test.go`、`backend/internal/service/gateway_scheduling.go`、`backend/internal/service/gateway_service.go`、`backend/internal/service/gateway_upstream_request.go`。
+  `backend/internal/service/gateway_upstream_request_test.go`、`backend/internal/service/gateway_upstream_response.go`、`backend/internal/service/gateway_usage_billing.go`、`backend/internal/service/gateway_usage_billing_account_quota_test.go`。
+  `backend/internal/service/gateway_usage_billing_request_id_test.go`、`backend/internal/service/gateway_websearch_emulation.go`、`backend/internal/service/gateway_websearch_emulation_test.go`、`backend/internal/service/gemini_cache_storage_pricing.go`。
+  `backend/internal/service/gemini_cache_storage_pricing_test.go`、`backend/internal/service/gemini_cached_content.go`、`backend/internal/service/gemini_cached_content_hardening_test.go`、`backend/internal/service/gemini_cached_content_not_found_test.go`。
+  `backend/internal/service/gemini_cached_content_test.go`、`backend/internal/service/gemini_chat_completions_compat_service.go`、`backend/internal/service/gemini_compat_thinking.go`、`backend/internal/service/gemini_compat_thinking_test.go`。
+  `backend/internal/service/gemini_error_policy_single_check_test.go`、`backend/internal/service/gemini_error_policy_test.go`、`backend/internal/service/gemini_image_generation_gate.go`、`backend/internal/service/gemini_image_generation_gate_test.go`。
+  `backend/internal/service/gemini_image_output_accounting.go`、`backend/internal/service/gemini_image_output_accounting_test.go`、`backend/internal/service/gemini_messages_compat_service.go`、`backend/internal/service/gemini_messages_compat_service_test.go`。
+  `backend/internal/service/gemini_models_endpoints.go`、`backend/internal/service/gemini_models_endpoints_test.go`、`backend/internal/service/gemini_native_reasoning_pricing_test.go`、`backend/internal/service/gemini_native_response_signal_test.go`。
+  `backend/internal/service/gemini_quota.go`、`backend/internal/service/gemini_quota_test.go`、`backend/internal/service/gemini_same_account_retries_test.go`、`backend/internal/service/gemini_stream_client_abort.go`。
+  `backend/internal/service/gemini_stream_client_abort_test.go`、`backend/internal/service/gemini_vertex_api_key_forward_test.go`、`backend/internal/service/gemini_vertex_token_error.go`、`backend/internal/service/gemini_vertex_token_error_test.go`。
+  `backend/internal/service/grok_media.go`、`backend/internal/service/grok_model_catalog.go`、`backend/internal/service/grok_model_catalog_store.go`、`backend/internal/service/grok_model_catalog_store_test.go`。
+  `backend/internal/service/grok_model_catalog_sync_test.go`、`backend/internal/service/grok_model_catalog_test.go`、`backend/internal/service/grok_model_diagnostics.go`、`backend/internal/service/grok_model_diagnostics_test.go`。
+  `backend/internal/service/grok_observed_models.go`、`backend/internal/service/grok_observed_models_log_test.go`、`backend/internal/service/grok_p2_test.go`、`backend/internal/service/grok_quota_service_test.go`。
+  `backend/internal/service/grok_response_model_audit_test.go`、`backend/internal/service/group.go`、`backend/internal/service/group_i18n.go`、`backend/internal/service/group_i18n_test.go`。
+  `backend/internal/service/group_service.go`、`backend/internal/service/image_billing_count.go`、`backend/internal/service/image_billing_count_test.go`、`backend/internal/service/image_count_billing_switch_test.go`。
+  `backend/internal/service/image_storage.go`、`backend/internal/service/image_storage_test.go`、`backend/internal/service/media_price_config.go`、`backend/internal/service/model_plaza_service.go`。
+  `backend/internal/service/model_plaza_service_test.go`、`backend/internal/service/model_rate_limit.go`、`backend/internal/service/model_rate_limit_snapshot_cow_test.go`、`backend/internal/service/model_rate_limit_test.go`。
+  `backend/internal/service/openai_account_runtime_block_fastpath.go`、`backend/internal/service/openai_account_scheduler.go`、`backend/internal/service/openai_account_scheduler_test.go`、`backend/internal/service/openai_alpha_search_billing_test.go`。
+  `backend/internal/service/openai_capacity_shed_test.go`、`backend/internal/service/openai_chat_contract.go`、`backend/internal/service/openai_chat_roles.go`、`backend/internal/service/openai_chat_roles_test.go`。
+  `backend/internal/service/openai_chat_text_contract_test.go`、`backend/internal/service/openai_codex_identity.go`、`backend/internal/service/openai_codex_identity_test.go`、`backend/internal/service/openai_codex_model_metadata.go`。
+  `backend/internal/service/openai_codex_model_metadata_test.go`、`backend/internal/service/openai_codex_models_service.go`、`backend/internal/service/openai_codex_models_service_test.go`、`backend/internal/service/openai_codex_transform.go`。
+  `backend/internal/service/openai_codex_version_sync_service_test.go`、`backend/internal/service/openai_compact_fallback.go`、`backend/internal/service/openai_compat_model.go`、`backend/internal/service/openai_gateway_anthropic_native_pump.go`。
+  `backend/internal/service/openai_gateway_anthropic_native_pump_test.go`、`backend/internal/service/openai_gateway_cc_pipeline.go`、`backend/internal/service/openai_gateway_chat_completions.go`、`backend/internal/service/openai_gateway_chat_completions_anthropic_native.go`。
+  `backend/internal/service/openai_gateway_chat_completions_raw.go`、`backend/internal/service/openai_gateway_chat_completions_test.go`、`backend/internal/service/openai_gateway_cn_fixes_test.go`、`backend/internal/service/openai_gateway_count_tokens.go`。
+  `backend/internal/service/openai_gateway_deepseek_input_image_test.go`、`backend/internal/service/openai_gateway_forward.go`、`backend/internal/service/openai_gateway_grok.go`、`backend/internal/service/openai_gateway_grok_chat_bridge.go`。
+  `backend/internal/service/openai_gateway_messages.go`、`backend/internal/service/openai_gateway_messages_chat_fallback.go`、`backend/internal/service/openai_gateway_model_availability.go`、`backend/internal/service/openai_gateway_passthrough.go`。
+  `backend/internal/service/openai_gateway_request_body.go`、`backend/internal/service/openai_gateway_response_flush_test.go`、`backend/internal/service/openai_gateway_response_handling.go`、`backend/internal/service/openai_gateway_responses_anthropic_native.go`。
+  `backend/internal/service/openai_gateway_responses_chat_fallback.go`、`backend/internal/service/openai_gateway_responses_chat_fallback_test.go`、`backend/internal/service/openai_gateway_scheduling.go`、`backend/internal/service/openai_gateway_search_surcharge_test.go`。
+  `backend/internal/service/openai_gateway_service.go`、`backend/internal/service/openai_gateway_upstream_errors.go`、`backend/internal/service/openai_gateway_usage.go`、`backend/internal/service/openai_gpt61_terra_test.go`。
+  `backend/internal/service/openai_image_generation_controls_test.go`、`backend/internal/service/openai_images.go`、`backend/internal/service/openai_images_responses.go`、`backend/internal/service/openai_images_upload_limit_test.go`。
+  `backend/internal/service/openai_model_alias.go`、`backend/internal/service/openai_model_retirement.go`、`backend/internal/service/openai_model_retirement_test.go`、`backend/internal/service/openai_models_list.go`。
+  `backend/internal/service/openai_oauth_passthrough_test.go`、`backend/internal/service/openai_response_model_rewrite_test.go`、`backend/internal/service/openai_responses_created_at.go`、`backend/internal/service/openai_responses_created_at_test.go`。
+  `backend/internal/service/openai_responses_ingress_compat.go`、`backend/internal/service/openai_setup_token_compat_test.go`、`backend/internal/service/openai_subscription_long_context_test.go`、`backend/internal/service/openai_usage_deepseek_cache_test.go`。
+  `backend/internal/service/openai_ws_forwarder_ingress.go`、`backend/internal/service/openai_ws_forwarder_success_test.go`、`backend/internal/service/openai_ws_forwarder_support.go`、`backend/internal/service/openai_ws_http_bridge.go`。
+  `backend/internal/service/openai_ws_http_bridge_test.go`、`backend/internal/service/openai_ws_v2_passthrough_adapter.go`、`backend/internal/service/ops_upstream_context.go`、`backend/internal/service/pagination_test.go`。
+  `backend/internal/service/payment_config_plans.go`、`backend/internal/service/payment_fulfillment.go`、`backend/internal/service/payment_notification_confirm_test.go`、`backend/internal/service/payment_order.go`。
+  `backend/internal/service/payment_order_type_test.go`、`backend/internal/service/payment_refund.go`、`backend/internal/service/payment_refund_pending_hold_test.go`、`backend/internal/service/payment_refund_test.go`。
+  `backend/internal/service/payment_resume_service.go`、`backend/internal/service/payment_resume_service_test.go`、`backend/internal/service/payment_service.go`、`backend/internal/service/pricing_service.go`。
+  `backend/internal/service/pricing_service_test.go`、`backend/internal/service/ratelimit_cn_frequency_429_test.go`、`backend/internal/service/ratelimit_cn_providers.go`、`backend/internal/service/ratelimit_service.go`。
+  `backend/internal/service/ratelimit_service_403_html_test.go`、`backend/internal/service/request_metadata.go`、`backend/internal/service/response_model_billing_test.go`、`backend/internal/service/scheduler_cache.go`。
+  `backend/internal/service/setting_features.go`、`backend/internal/service/setting_gateway_runtime.go`、`backend/internal/service/setting_service.go`、`backend/internal/service/settings_view.go`。
+  `backend/internal/service/single_account_retry_probe_test.go`、`backend/internal/service/temp_unsched.go`、`backend/internal/service/temp_unsched_scope_test.go`、`backend/internal/service/upstream_models.go`。
+  `backend/internal/service/upstream_models_antigravity_test.go`、`backend/internal/service/upstream_models_test.go`、`backend/internal/service/upstream_models_vertex_test.go`、`backend/internal/service/upstream_response_model_test.go`。
+  `backend/internal/service/usage_billing.go`、`backend/internal/service/vertex_service_account.go`、`backend/internal/service/vertex_service_account_test.go`、`backend/internal/service/wire.go`。
+
+- backend/internal/util：
+  `backend/internal/util/logredact/redact.go`、`backend/internal/util/logredact/redact_test.go`。
+
+- backend/migrations：
+  `backend/migrations/242_group_i18n.sql`、`backend/migrations/243_gemini_cached_contents.sql`、`backend/migrations/244_gemini_cached_contents_channel_usage.sql`、`backend/migrations/245_gemini_cached_contents_mutation_lease.sql`。
+  `backend/migrations/246_enable_gemini_image_generation_groups.sql`、`backend/migrations/247_scoped_admin_api_keys.sql`、`backend/migrations/248_group_image_count_billing.sql`、`backend/migrations/gemini_image_generation_groups_migration_test.go`。
+
+- backend/resources：
+  `backend/resources/model-pricing/model_prices_and_context_window.json`。
+
+- deploy：
+  `deploy/Dockerfile`、`deploy/config.example.yaml`。
+
+- frontend：
+  `frontend/package.json`、`frontend/pnpm-lock.yaml`。
+
+- frontend/src/api：
+  `frontend/src/api/__tests__/admin.accounts.grokModelDiagnostics.spec.ts`、`frontend/src/api/admin/accounts.ts`、`frontend/src/api/admin/adminAccessKeys.ts`。
+
+- frontend/src/components：
+  `frontend/src/components/account/AccountCapacityCell.vue`、`frontend/src/components/account/AccountGroupsCell.vue`、`frontend/src/components/account/AccountTestModal.vue`、`frontend/src/components/account/AccountUsageCell.vue`。
+  `frontend/src/components/account/CreateAccountModal.vue`、`frontend/src/components/account/EditAccountModal.vue`、`frontend/src/components/account/GrokModelDiagnosticsPanel.vue`、`frontend/src/components/account/ModelWhitelistSelector.vue`。
+  `frontend/src/components/account/UsageProgressBar.vue`、`frontend/src/components/account/__tests__/AccountUsageCell.spec.ts`、`frontend/src/components/account/__tests__/CreateAccountModal.spec.ts`、`frontend/src/components/account/__tests__/EditAccountModal.grokUpstream.spec.ts`。
+  `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`、`frontend/src/components/account/__tests__/GrokModelDiagnosticsPanel.spec.ts`、`frontend/src/components/account/__tests__/ModelWhitelistSelector.spec.ts`、`frontend/src/components/account/__tests__/UsageProgressBar.spec.ts`。
+  `frontend/src/components/admin/account/AccountActionMenu.vue`、`frontend/src/components/admin/account/AccountTableFilters.vue`、`frontend/src/components/admin/account/AccountTestModal.vue`、`frontend/src/components/admin/account/__tests__/AccountTableFilters.spec.ts`。
+  `frontend/src/components/admin/group/GroupI18nField.vue`、`frontend/src/components/admin/group/GroupRPMOverridesModal.vue`、`frontend/src/components/admin/group/GroupRateMultipliersModal.vue`、`frontend/src/components/admin/group/__tests__/GroupI18nField.spec.ts`。
+  `frontend/src/components/admin/group/__tests__/GroupRPMOverridesModal.requests.spec.ts`、`frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.edit.spec.ts`、`frontend/src/components/admin/settings/AdminAccessKeysSettings.vue`、`frontend/src/components/admin/settings/__tests__/AdminAccessKeysSettings.spec.ts`。
+  `frontend/src/components/common/GroupBadge.vue`、`frontend/src/components/common/LocaleSwitcher.vue`、`frontend/src/components/common/PlatformTypeBadge.vue`、`frontend/src/components/common/Select.vue`。
+  `frontend/src/components/common/__tests__/LocaleSwitcher.spec.ts`、`frontend/src/components/common/__tests__/Select.ime.spec.ts`、`frontend/src/components/keys/UseKeyModal.vue`、`frontend/src/components/keys/__tests__/UseKeyModal.spec.ts`。
+  `frontend/src/components/payment/PaymentQRDialog.vue`、`frontend/src/components/payment/PaymentStatusPanel.vue`、`frontend/src/components/payment/__tests__/paymentCountdown.spec.ts`。
+
+- frontend/src/composables：
+  `frontend/src/composables/__tests__/useGeminiOAuth.errors.spec.ts`、`frontend/src/composables/__tests__/useModelWhitelist.spec.ts`、`frontend/src/composables/useGeminiOAuth.ts`、`frontend/src/composables/useModelWhitelist.ts`。
+
+- frontend/src/features：
+  `frontend/src/features/channel-monitor-v2/MonitorSettingsPanel.vue`、`frontend/src/features/channel-monitor-v2/__tests__/MonitorSettingsPanel.spec.ts`。
+
+- frontend/src/i18n：
+  `frontend/src/i18n/locales/en/admin/accounts.ts`、`frontend/src/i18n/locales/en/admin/channels.ts`、`frontend/src/i18n/locales/en/admin/ops.ts`、`frontend/src/i18n/locales/en/admin/overview.ts`。
+  `frontend/src/i18n/locales/en/admin/settings.ts`、`frontend/src/i18n/locales/en/adminAccessKeys.ts`、`frontend/src/i18n/locales/en/batchImage.ts`、`frontend/src/i18n/locales/en/channelMonitorV2.ts`。
+  `frontend/src/i18n/locales/en/index.ts`、`frontend/src/i18n/locales/zh/admin/accounts.ts`、`frontend/src/i18n/locales/zh/admin/channels.ts`、`frontend/src/i18n/locales/zh/admin/ops.ts`。
+  `frontend/src/i18n/locales/zh/admin/overview.ts`、`frontend/src/i18n/locales/zh/admin/settings.ts`、`frontend/src/i18n/locales/zh/adminAccessKeys.ts`、`frontend/src/i18n/locales/zh/batchImage.ts`。
+  `frontend/src/i18n/locales/zh/channelMonitorV2.ts`、`frontend/src/i18n/locales/zh/index.ts`。
+
+- frontend/src/types：
+  `frontend/src/types/index.ts`。
+
+- frontend/src/utils：
+  `frontend/src/utils/__tests__/geminiExplicitCache.spec.ts`、`frontend/src/utils/accountQuota.ts`、`frontend/src/utils/geminiExplicitCache.ts`。
+
+- frontend/src/views：
+  `frontend/src/views/admin/AccountsView.vue`、`frontend/src/views/admin/ChannelsView.vue`、`frontend/src/views/admin/GroupsView.vue`、`frontend/src/views/admin/SettingsView.vue`。
+  `frontend/src/views/admin/__tests__/ChannelsView.webSearchEmulation.spec.ts`、`frontend/src/views/admin/__tests__/groupsImagePricing.spec.ts`、`frontend/src/views/admin/groupsImagePricing.ts`、`frontend/src/views/admin/ops/components/OpsDashboardHeader.vue`。
+  `frontend/src/views/admin/ops/components/OpsRequestDetailsModal.vue`、`frontend/src/views/admin/ops/components/__tests__/OpsDashboardHeader.timezone.spec.ts`、`frontend/src/views/admin/ops/components/__tests__/OpsRequestDetailsModal.spec.ts`、`frontend/src/views/admin/ops/utils/accountNameMap.ts`。
+  `frontend/src/views/user/ChannelStatusV1View.vue`、`frontend/src/views/user/PaymentQRCodeView.vue`、`frontend/src/views/user/PaymentView.vue`、`frontend/src/views/user/StripePaymentView.vue`。
+  `frontend/src/views/user/__tests__/ChannelStatusV1View.details.spec.ts`、`frontend/src/views/user/__tests__/StripePaymentView.spec.ts`。
+
+- 构建与根目录：
+  `Dockerfile`、`Makefile`。
+
+
+### 2026-10-17 · ADMIN-SKILL-001 · 完善 Sub2API 管理 skill 与管理员 KEY 生命周期
+
+- 原因与行为：管理 skill 新增原生 macOS Keychain/Linux Secret Service 凭据读取、用户/KEY/消费排行/账户负载/定时测试/备份计划命令；消费排行按完整分页 usage 明细的 `actual_cost` 汇总并保留时间、筛选和完整性元数据。Node 直通写入也要求确认。
+- 代码路径：`backend/internal/handler/admin/apikey_handler.go`、`backend/internal/handler/admin/user_handler.go`、`backend/internal/handler/wire.go`、`backend/internal/server/routes/admin.go`、`skills/sub2api-admin/scripts/sub2api_admin.py`、`skills/sub2api-admin/scripts/sub2api-admin.js`、`skills/sub2api-admin/tests/test_sub2api_admin.py`、`sub2api-admin-skill/scripts/sub2api_admin.py`、`sub2api-admin-skill/scripts/sub2api-admin.js`、`sub2api-admin-skill/tests/test_sub2api_admin.py`。
+- 后端路径：`sub2api/backend/internal/handler/admin/apikey_handler.go`、`sub2api/backend/internal/handler/admin/user_handler.go`、`sub2api/backend/internal/handler/wire.go`、`sub2api/backend/internal/server/routes/admin.go`。新增显式目标用户的管理员 KEY CRUD 与 `/admin/users/me`，复用 APIKeyService 的配额、分组、所有权和校验。
+- 文档路径：`sub2api/docs/SUB2API_ADMIN_SKILL_IMPLEMENTATION.md`、`sub2api/sub2api-admin-skill/SKILL.md`、`sub2api/sub2api-admin-skill/references/admin-cli.md` 及其发布副本。
+- 验证：Python 单元测试、Python 编译、Node 语法检查；Go 定向测试待依赖编译完成后记录。未连接生产服务，未创建/修改真实 KEY、用户或计划。
 
 ### 2026-10-03 · ARCH-003 · 增加本地启动脚本
 

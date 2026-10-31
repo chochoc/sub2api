@@ -153,22 +153,32 @@ func TestChatTextContractBoundedDrain(t *testing.T) {
 }
 
 func TestChatContractActualResponsesDispatch(t *testing.T) {
-	for _, mode := range []string{"none", "auto", "required"} {
-		t.Run(mode, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(rec)
-			body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"max_tokens":100,"max_completion_tokens":16,"tools":[{"type":"function","function":{"name":"f"}}],"tool_choice":"` + mode + `"}`)
-			c.Request = httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(string(body)))
-			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(chatTextFixture([]string{"hello"}, "completed", "")))}}
-			cfg := &config.Config{}
-			cfg.Gateway.OpenAIChatContract = config.OpenAIChatContractConfig{Policy: "strict", StopMode: "reject", DrainTimeoutSeconds: 30}
-			svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
-			account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-only"}, Extra: map[string]any{"openai_responses_supported": true}}
-			_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.4")
-			require.NoError(t, err)
-			require.Equal(t, int64(16), gjson.GetBytes(upstream.lastBody, "max_output_tokens").Int())
-			require.Equal(t, mode, gjson.GetBytes(upstream.lastBody, "tool_choice").String())
-		})
+	for _, tc := range []struct {
+		name, policy string
+		floor, want  int64
+	}{
+		{"strict-preserves-client-limit", "strict", 64, 16},
+		{"legacy-uses-configured-floor", "legacy", 64, 64},
+		{"legacy-uses-default-floor", "legacy", 0, 128},
+	} {
+		for _, mode := range []string{"none", "auto", "required"} {
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"max_tokens":100,"max_completion_tokens":16,"tools":[{"type":"function","function":{"name":"f"}}],"tool_choice":"` + mode + `"}`)
+				c.Request = httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(string(body)))
+				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(chatTextFixture([]string{"hello"}, "completed", "")))}}
+				cfg := &config.Config{}
+				cfg.Gateway.MinOutputTokens = int(tc.floor)
+				cfg.Gateway.OpenAIChatContract = config.OpenAIChatContractConfig{Policy: tc.policy, StopMode: "reject", DrainTimeoutSeconds: 30}
+				svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+				account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-only"}, Extra: map[string]any{"openai_responses_supported": true}}
+				_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.4")
+				require.NoError(t, err)
+				require.Equal(t, tc.want, gjson.GetBytes(upstream.lastBody, "max_output_tokens").Int())
+				require.Equal(t, mode, gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+			})
+		}
 	}
 }
 

@@ -311,7 +311,7 @@ handler **应该**保持输入/输出与编排职责，新增数据库操作放�
 
 以下命令默认在 **sub2api 仓库根目录**执行，括号内命令只在子 shell 切换目录。
 
-工具链以仓库配置为准：当前 Go 为 `backend/go.mod` 声明的 **1.27.0**，CI 同时硬校验该版本；前端 CI 使用 **Node.js 20、pnpm 9**，golangci-lint 为 **v2.13**。升级 Go 必须同步 CI 断言、Docker 构建镜像和发布配置；不得通过随意降低 `go.mod` 版本规避环境问题。
+工具链以仓库配置为准：当前 Go 为 `backend/go.mod` 声明的 **1.27.3**，CI 同时硬校验该版本；前端 CI 使用 **Node.js 20、pnpm 9**，golangci-lint 为 **v2.14.0**。升级 Go 必须同步 CI 断言、Docker 构建镜像和发布配置；不得通过随意降低 `go.mod` 版本规避环境问题。
 
 ```bash
 # 安装前端锁定依赖
