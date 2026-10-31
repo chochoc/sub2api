@@ -494,7 +494,7 @@ VITE_KEY_MODEL_TEST_ENABLED=false
 
 类型和目录 → 网关客户端 → 六个模板和解析 → 有界图片/SSE → 串行队列 → 弹窗与双语 → KeysView 入口 → 测试 → 架构索引与文档。
 
-当前实际从同步基线建立 `feature/api-key-model-test`，作为依赖同步分支的功能分支进行独立开发，没有合并、重写或推送 main。合入前须先完成同步分支审核与合入，再吸收已更新的 origin/main。此处记录实际分支顺序与原方案“先合入同步分支再开发”的差异，不能把本地功能验证写成同步分支已获准发布。
+当前实际从同步基线建立 `feature/api-key-model-test`，作为依赖同步分支的功能分支进行独立开发，没有合并、重写或推送 main。此处保留实际分支顺序与原方案“先合入同步分支再开发”的差异。2026-10-31 同步分支连同前端安全依赖修复已通过 GitHub CI 并经 [PR #2](https://github.com/chochoc/sub2api/pull/2) 合入 main（a67aac90718b309a4b550952e99e7db89cf08d53）；功能分支随后普通 merge 吸收 origin/main，保留双方索引记录，不 rebase 或强推。升级依赖后的功能组合已通过 lint/typecheck、578 项 critical、3,098 项全量前端测试和开启功能构建；最终合并状态以功能 PR 为准。
 
 原有未跟踪参考文档保留，不作为本功能改动提交。
 

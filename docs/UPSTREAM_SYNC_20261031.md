@@ -76,3 +76,22 @@ Wire 按 `backend/internal/handler/wire.go` 重新生成，修复已有管理 AP
 本分支是本地源码合并结果。发布前仍须满足开发规范中的 CI、评审、真实数据库迁移演练和关键业务验收，并在 Fork 创建 PR 后合入 main。
 
 生产部署前应备份 PostgreSQL、Redis、配置/密钥、旧产物，并用脱敏副本验证新迁移和旧应用兼容。回滚目标是升级前完整 Fork commit `c92175f2b`；仅撤回源码合并不等于撤回数据库变更。若旧应用无法读取迁移后的库，必须使用经过演练的数据恢复方案，不能盲目替换二进制或覆盖升级后的业务写入。
+
+## 合入前安全门禁修复（2026-10-31）
+
+GitHub 上同步基线和 API Key 模型测试分支的常规 CI 已通过，但 Security Scan 的 frontend-security 失败。使用与 CI 相同的 `pnpm audit --prod --audit-level=high --json` 及例外检查在本地复现，新增未豁免高危项为：
+
+- Vue I18n / @intlify/core-base / @intlify/shared 9.14.5：GHSA-83rm-6c8r-g728，escapeParameter 对 srcdoc 的 XSS 防护不完整。
+- decode-uri-component：GHSA-qr28-fpjm-wq7f，百分号编码输入触发二次复杂度拒绝服务。
+- follow-redirects：GHSA-mrwp-f3q8-3g9p，跨 realm 的敏感头列表被忽略。
+
+本次在同步分支追加修复提交，不重写原同步 merge，不跳过 CI：
+
+- 将 Vue I18n 与测试使用的 @intlify/message-compiler 对齐为 11.4.16。9.x 没有更新的修复发行版；项目使用 `legacy:false` 的 Composition API，需通过类型、全量前端和文案编译检查验证升级。
+- 将 follow-redirects override 的最低版本提高到 1.16.2，新增 decode-uri-component 最低版本 0.5.1。
+- 重新生成 pnpm lockfile，没有新增漏洞豁免或延长过期日期。
+- 更新 SubscriptionPlanCard 测试：旧断言依赖 9.x runtime-only 环境未翻译时的 key 回退；11.x 正常翻译后改为验证用户可见的 month/weeks/days 和购买按钮文案，保留原期限分支和布局检查。
+
+审计例外检查已通过；余下 xlsx 两项高危使用仓库现有、截至 2027-01-06 的仅导出场景例外。此结果不是“依赖无漏洞”的承诺，低/中危及已有例外仍按原维护策略跟踪。
+
+修复后 frozen-lockfile 离线安装、lint/typecheck、576 项 critical、3,011 项全量前端测试及构建通过；套餐卡片定向 9 项通过。追加修复将推送原同步分支，由 GitHub 重新执行完整 CI 和 Security Scan，远端结果以对应提交检查为准。同步 PR 仍须先合入 main，再由功能分支普通 merge 吸收更新后的 main，禁止 rebase 已推送且本地部署过的功能分支。生产迁移/恢复和真实供应商验收仍不因 CI 通过而自动视为完成。

@@ -473,9 +473,9 @@ make check-architecture-index
 ### 2026-10-31 · KEY-MODEL-TEST-001 · 用户 API Key 模型测试
 
 - 原因与行为：密钥页新增可关闭的测试入口；独立前端模块通过当前 Key 发现模型并执行文本/图片单项和串行批量请求，支持 SSE、协议终态验证、端点覆盖、费用确认、取消、有界读取和有限预览。真实调用沿用现有鉴权/调度/计费，无后端或持久化迁移。
-- 分支与兼容：功能分支从同步 commit `7090857956d6d7ec6a97dfc19a06688f025f4caf` 建立；同步分支尚未合入 main，先合入同步分支及其升级 Gate 仍是最终合入/发布前置。构建变量默认 false，不改变已有部署页面和网关协议。
+- 分支与兼容：功能分支从同步 commit `7090857956d6d7ec6a97dfc19a06688f025f4caf` 建立；实现时同步分支尚未合入 main；现已通过 CI 经 PR #2 合入，功能分支以普通 merge 吸收 main，生产升级 Gate 仍是发布前置。构建变量默认 false，不改变已有部署页面和网关协议。
 - 关联：本指南 §1/§7.3.1/§7.4；[技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) 记录类型、协议、资源预算、测试及回滚。运行时未增加秘密持久化或面板 JWT 到网关的路径。
-- 验证：首次离线检查为 critical 578 项、功能与 KeysView 107 项、全套 3,092 项；本地部署修复后为 578 / 113 / 3,098 项，lint/typecheck、开启功能构建和 embed web 测试通过。首次开/关构建、Chrome 模拟网关交互及工作区/暂存区索引 Gate 通过。追加真实本地部署验收见下条及专门方案 §11.5。真实供应商、真实收费和生产部署未验证；同步分支合入与升级前置仍待完成。
+- 验证：首次离线检查为 critical 578 项、功能与 KeysView 107 项、全套 3,092 项；本地部署修复后为 578 / 113 / 3,098 项，lint/typecheck、开启功能构建和 embed web 测试通过。首次开/关构建、Chrome 模拟网关交互及工作区/暂存区索引 Gate 通过。追加真实本地部署验收见下条及专门方案 §11.5。真实供应商、真实收费和生产部署未验证；同步 PR #2 已合入，生产升级前置仍待完成。
 - 变更代码路径（逐文件；包含测试和配置）：
 - `frontend/.env.example`
 - `frontend/src/features/key-model-test/__tests__/KeyModelTestModal.spec.ts`
@@ -522,6 +522,14 @@ make check-architecture-index
 - 代码与回归：`frontend/src/features/key-model-test/useKeyModelTest.ts`、`frontend/src/features/key-model-test/protocols/responses.ts`、`frontend/src/features/key-model-test/__tests__/useKeyModelTest.spec.ts`、`frontend/src/features/key-model-test/__tests__/protocols.spec.ts`。
 - 部署与验证：开启开关的源码 embed 版本运行于本机 8443/18080，保留升级前私有备份。真实面板/网关配合隔离模拟上游完成 10 个协议场景、串行批量、图片预览、权限/IP/余额拒绝及 23 条用量归属检查，临时资源清理成功。lint/typecheck、578 critical、113 定向、3,098 全量测试、构建/embed web 和架构索引检查通过。
 - 关联与边界：[本地验收记录](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md)、[技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) §6.4/§7.3/§11.5、[本地部署指南](LOCAL_SOURCE_HTTPS_DEPLOYMENT.md)。服务保持运行，无后端业务变更；未调用真实供应商，未验证真实收费或生产升级；本地验收时未提交/推送/生产发布，后续提交及评审状态以 Git 记录为准。
+
+### 2026-10-31 · UPSTREAM-SECURITY-020 · 修复同步分支的前端安全门禁
+
+- 原因与行为：GitHub frontend-security 报告 Vue I18n、decode-uri-component 和 follow-redirects 新增高危漏洞。升级 Vue I18n 与消息编译器至 11.4.16，传递依赖最低修复版本分别为 0.5.1、1.16.2，保持既有漏洞检查和例外策略；套餐卡片回归改为验证实际翻译文案，保留期限/布局/购买动作断言。
+- 代码/配置：`frontend/package.json`、`frontend/pnpm-lock.yaml`、`frontend/src/components/payment/__tests__/SubscriptionPlanCard.spec.ts`。
+- 关联：本指南 §7/§9、[同步记录](UPSTREAM_SYNC_20261031.md) 的合入前安全门禁修复。无需数据库迁移，不更新生产或本地运行二进制。
+- 验证：同 CI 参数的 production audit 及既有例外检查通过；frozen-lockfile 安装、lint/typecheck、576 项 critical、3,011 项全量、套餐卡片定向 9 项和构建通过；远端检查以追加提交的 GitHub CI 为准，不把已有 xlsx 例外计为零漏洞。
+
 
 ### 2026-10-31 · UPSTREAM-SYNC-019 · 合并官方 v0.2.19 并保留 Fork 定制
 
