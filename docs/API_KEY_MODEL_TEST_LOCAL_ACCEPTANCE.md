@@ -1,5 +1,7 @@
 # API Key 模型测试：本地部署与验收记录
 
+> **当前部署（2026-11-01）**：已从干净的 `main` 提交 `0f2b04c2cd3b3549ed6467ff0783c736edc2a28d` 重新构建并部署 `0.2.19-custom.2-main-local`，模型测试开关开启，服务继续在本机运行。新增验收与备份记录见 §7；§1–§6 保留为 2026-10-31 的历史记录，不能作为当前产物摘要。
+
 > 日期：2026-10-31（Asia/Shanghai）。状态：当前源码已在本机运行，功能开关已开启，本地端到端验收通过。供应商响应为本地 fixture，未进行真实供应商付费调用或生产部署。
 >
 > 对应方案：[API_KEY_MODEL_TEST_TECHNICAL_PLAN.md](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md)。部署方法沿用 [LOCAL_SOURCE_HTTPS_DEPLOYMENT.md](LOCAL_SOURCE_HTTPS_DEPLOYMENT.md)。
@@ -119,3 +121,49 @@ node deploy/local-source-https.mjs stop
 本次完成的是本地已部署服务的验收。真实供应商可用性、真实收费、生产 IP/代理规则、Composite 真实账号及生产升级/恢复演练仍未完成；本机模拟图片成功不等于供应商生图成功。
 
 本地验收结束时尚未提交、推送、合并同步分支或发布生产；后续 Git 提交与评审状态以仓库记录为准。原有 `docs/REF_AUTH_TECHNICAL_PLAN.md` 保持不变。后续同步分支已通过 PR #2 合入，并升级前端安全依赖；该后续源码变更未替换本文记录的本地二进制。上线仍需完成生产基线/数据库核对及真实专用 Key 验收。
+
+## 7. 合入 main 后重新部署（2026-11-01）
+
+### 7.1 实际产物与访问
+
+| 项目 | 本次实际值 |
+| --- | --- |
+| 源码 | 干净的 `main`，`0f2b04c2cd3b3549ed6467ff0783c736edc2a28d`；包含 PR #2、#3、#4 |
+| 版本 | `0.2.19-custom.2-main-local` |
+| 构建时间（UTC） | `2026-11-01T00:43:06Z` |
+| 二进制 SHA-256 | `ddb93507fbcff24a3eb17c6a432e1b75ebed79b4eb3b2c336ceeeea70c2871b1` |
+| 构建 | Go 1.27.3、CGO_ENABLED=0、embed、trimpath；注入版本、完整提交、时间及 BuildType=source |
+| 前端 | Node v24.19.0、pnpm 9.15.9，锁定安装；`VITE_KEY_MODEL_TEST_ENABLED=true` |
+| 入口 | `http://127.0.0.1:18080/keys`、`https://127.0.0.1:8443/keys` |
+| 凭据 | 邮箱 `admin@local.invalid`；密码仍在 `.dev/local-https/credentials.json` 的 `admin_password`，未输出或提交 |
+| 私有证据 | `.dev/local-https/main-deploy-20261101/`，含部署清单、构建/测试日志和浏览器结果 |
+
+本机父目录声明其他包管理器，且系统 Corepack 存在签名缓存问题；本次直接使用既有 pnpm 9.15.9，仅对子命令设置 `COREPACK_ENABLE_STRICT=0` 避开父目录的包管理器声明，仍使用 `--frozen-lockfile`，未更改全局配置或关闭下载校验。没有把 Node 24 的本地验证写成 Node 20 验证。
+
+### 7.2 备份与替换
+
+升级前生成 `pg_dump -Fc` 并通过 `pg_restore --list` 核对可读取。停止本实例后，备份完整 PostgreSQL、Redis 持久化目录、应用数据、配置、凭据、证书及旧程序至 `.dev/local-https/backups/main-20261101T004321Z/`；未修改系统 CA 信任，未清空数据库或接管其他实例。
+
+新程序先构建为 `.dev/local-https/bin/sub2api.next`。首次替换因构建清单覆盖备份路径字段而中止，旧实例恢复运行；修正私有记录后再次停止、完成冷备份并替换。最终通过程序版本输出及 `/api/v1/settings/public` 确认为新版本，没有将旧程序的健康检查算作新版本验证。备份目录权限 700、秘密文件 600，备份可读取不代表已完成隔离恢复演练。
+
+当前源码相对旧部署基线没有新增数据库 migration；运行后仍为 299 条迁移记录。源码中的后续文档记录不改变本节已构建程序的提交来源。四组件继续仅监听回环地址，停止/启动仍使用 §1 的管理脚本。
+
+### 7.3 本次真实验证
+
+| 检查 | 结果 |
+| --- | --- |
+| 锁定安装、lint、类型、critical Vitest | 通过，30 文件 / 578 项测试 |
+| 模型测试模块与 KeysView 定向 Vitest | 通过，9 文件 / 113 项测试 |
+| 开启功能的前端构建 | 通过；保留既有大 chunk 提示 |
+| embed 构建与 `go test -tags embed ./internal/web` | 通过 |
+| HTTPS smoke、资源、管理员登录、无 Key 401 | 替换后及清理后均通过；使用专用 CA 严格校验证书 |
+| 本地管理 API 诊断 | 替换前后通过；通过 `sub2api-admin` 的只读 API 命令获取本地 dashboard snapshot，未访问生产实例 |
+| 浏览器普通用户实际登录及 `/keys` | 通过；3 个专用 Key 的测试入口可见 |
+| 六种协议 / 模式 | 10 项全部成功：Responses、Chat、Messages、Gemini 文本各含流式与非流式，Images、Gemini 图片各一次；两种图片预览均可解码 |
+| 串行批量 | 开窗与取消确认均不发生成请求；确认后 2 次生成，最大活动请求数为 1 |
+| 权限和限制 | 跨用户读取 404；无效/禁用 Key 401；HTTPS 代理下 IP 黑名单 403；零余额模型发现 403 / INSUFFICIENT_BALANCE |
+| 界面 | 明暗主题、390px 窄屏无文档横向溢出、Escape 关闭通过；浏览器 pageerror 为 0 |
+| 用量归属 | 12 条测试用量均归属本次临时用户及 3 个 Key；模拟 usage 进入真实本地结算链路 |
+| 清理与保留 | 临时 Key、账号、分组、用户均删除，清理失败 0；活动资源数量恢复到测试前，临时会话文件删除，模拟上游停止；原有本地数据和真实服务保留 |
+
+本轮通过真实嵌入 UI、本地 HTTPS、Sub2API 网关与本地模拟上游验证。未进行真实供应商付费调用、生产部署、生产迁移或备份恢复演练；模拟图片和本地账务记录不能证明真实供应商生图或账单一致性。本次没有业务源码变更，未机械重跑全套 Go 业务测试或全量 Vitest，不能将此前其他提交的检查当作本轮执行结果。
