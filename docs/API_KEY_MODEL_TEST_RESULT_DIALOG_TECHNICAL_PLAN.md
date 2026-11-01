@@ -86,6 +86,8 @@ python3 tools/check_architecture_index.py --staged
 
 从更新后的干净 main 创建 `fix/key-model-test-result-dialog`，先落盘本文，再修改组件、测试和文案。完成本地检查与部署后更新验证状态，推送到 origin，创建到 main 的 PR，按手册完成适用 CI/评审后合并；不直接推 main、不改写历史、不向 upstream 推送。
 
+实际推送代码并创建 PR #6 后，GitHub 未为自动 push/pull_request 事件创建运行或 check suite，工作流和 Actions 权限仍为启用。为执行原有检查，给既有 CI 与 Security Scan 补充 `workflow_dispatch`，原触发、job 内容与权限保持不变；对功能分支手动运行，不能把无检查结果当作通过。此项属于检查触发能力，不改变产品构建开关。
+
 代码回滚还原本次组件/文案修改；本地程序回滚使用备份的已验证产物。没有本次新增迁移，但仍需确认备份与运行基线匹配。恢复旧版会恢复列表底部的详情展示方式。
 
 ## 7. 实施与验证记录

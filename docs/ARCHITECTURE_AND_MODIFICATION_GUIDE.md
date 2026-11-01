@@ -482,8 +482,10 @@ make check-architecture-index
   - `frontend/src/features/key-model-test/__tests__/KeyModelTestModal.spec.ts`：按需查看、生命周期、批量、图片及真实 BaseDialog 的 Escape/焦点/滚动集成验证。
   - `frontend/src/i18n/locales/zh/keyModelTest.ts`：详情标题与关闭文案。
   - `frontend/src/i18n/locales/en/keyModelTest.ts`：对应英文文案。
+  - `.github/workflows/backend-ci.yml`：保留原有触发与检查，补充 workflow_dispatch，以便自动事件未创建运行时对指定分支执行原有 CI。
+  - `.github/workflows/security-scan.yml`：相同的手动入口执行原有安全扫描，检查内容与权限不变。
 - 正文章节与文档：本指南 §1.1、§7.3.1；`docs/API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md`、原模型测试方案 §9；本地验收记录按实际部署结果追加。
-- 兼容与验证：不改公共 BaseDialog、网关、后端、计费、数据实体或开关。lint/类型、578 项 critical、131 项定向（含真实弹窗逻辑）、双语及开启功能构建通过；本地 embed/浏览器及 GitHub CI 尚待完成，按方案及验收记录补充实际结果。
+- 兼容与验证：不改公共 BaseDialog、网关、后端、计费、数据实体或产品开关。lint/类型、578 项 critical、131 项定向（含真实弹窗逻辑）、双语、开启功能构建及 embed/web 测试通过；本地浏览器及 GitHub CI 按方案及验收记录补充实际结果。手动 CI 入口须经 YAML 结构比对及 GitHub 实际执行验证。
 
 ### 2026-11-01 · LOCAL-MAIN-DEPLOY-001 · 合入 main 后本机重新部署与验收
 
