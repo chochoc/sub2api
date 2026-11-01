@@ -1,6 +1,6 @@
 # 2026-11-01 官方 main 源码同步
 
-> 状态：同步分支已合并源码并逐项解决冲突，验证执行中；实际结果见下方记录。源码更新与运行实例升级分开，本次不自动替换现有本地或生产服务。
+> 状态：源码已同步，冲突解决及本地验证完成；GitHub CI、评审和合入状态以关联 PR 的实际记录为准。源码更新与运行实例升级分开，本次不自动替换现有本地或生产服务。
 
 ## 1. 固定来源与范围
 
@@ -39,13 +39,15 @@ rerere 已启用，本次五个冲突均保留冲突 preimage，逐项核对后�
 
 Go 新增 MCP SDK、jsonschema、segmentio、URI template 和 oauth2 依赖，校验和随官方引入；保留原 Wire 校验和。前端 package/lock 实际保持 Fork 安全修复后的内容，不产生新的安全降级或例外。
 
+完整普通后端测试首次暴露既有 `TestAPIKeyCacheSubscriber_BlocksUntilContextCancellation` 偶发失败：就绪轮询重复发布会让容量为 1 的测试通知通道阻塞回调，导致测试无法观察取消。仅把测试回调改为非阻塞发送并补充 cancel 清理，不改生产订阅实现、不放宽取消断言；定向连续 100 次通过，完整 Gate 结果见 §5。
+
 ## 4. 迁移、配置、升级及回滚
 
 唯一新增 migration 为 `backend/migrations/249_mcp_oauth.sql`：创建 grants/codes/credentials 三表与普通索引，外键指向 users、授权关系级联；授权/码/凭证只保存摘要，scope/kind 受约束。未修改已应用历史 SQL；新建表默认无数据，不改已有余额、Key、账号或计费记录。动态客户端注册不写表，其签名密钥首次使用存入既有 security_secrets。
 
 需要配置 MCP 时应使用可信 HTTPS、精确 `/api/v1/mcp` 路径；仅回环开发允许 HTTP，不支持站点子路径、userinfo、query 或 fragment。反向代理额外转发 MCP/OAuth 与 well-known 端点；分域部署还需正确前端地址及 Origin。默认空保持 503/入口隐藏。Compose 与示例新增相应空变量，不影响已有网关开关。
 
-迁移验证使用隔离测试库/本地数据库副本，不在现有业务库上运行新程序。验证完整迁移 runner、重复启动、历史数据及旧版本兼容；实际执行结果与生产演练区分。生产部署前仍须核对线上基线、备份 PostgreSQL/Redis/配置/必要秘密/旧程序或镜像并验证可读，在脱敏生产副本演练迁移锁与恢复。没有生产数据或环境时不得宣称已完成生产演练。
+迁移验证使用隔离测试库/本地数据库副本，不在现有业务库上运行新程序。新增表的索引只作用于空表，外键仍需引用 users 的锁；本地 60ms 不能推断生产锁等待，应在生产副本与负载下测量。验证完整迁移 runner、重复启动、历史数据及旧版本兼容；实际执行结果与生产演练区分。生产部署前仍须核对线上基线、备份 PostgreSQL/Redis/配置/必要秘密/旧程序或镜像并验证可读，在脱敏生产副本演练迁移锁与恢复。没有生产数据或环境时不得宣称已完成生产演练。
 
 源码回滚使用新增 revert 提交撤回同步，不能 reset/强推已共享 main。应用回滚到 Fork 起点的固定已验证程序；数据库若经兼容验证可保留新增表，MCP 保持关闭；若无法证明兼容或存在后续写入差异，应执行经演练的数据恢复。不能在已有业务写入后盲目覆盖旧备份。
 
@@ -60,11 +62,15 @@ Go 新增 MCP SDK、jsonschema、segmentio、URI template 和 oauth2 依赖，�
 | 冲突与差异复核 | 五项逐项解决，自动合并的 i18n/装配/配置与定制逻辑已核对 |
 | Wire 生成 | 成功；结果与自动合并的装配一致 |
 | frozen-lockfile 安装 | 离线成功，package/lock 保留既有安全下限 |
-| 后端 unit / 普通测试与 lint / build | 执行中，结果后续按真实日志更新 |
-| 前端 critical / 全量 / 构建 / 定制模块 | 执行中，结果后续按真实日志更新 |
+| 后端 unit / 普通测试与 lint / build | `make -C backend test-unit` 通过；普通测试首次因既有测试回调阻塞失败，修正后 `make -C backend test` 全部通过，golangci-lint v2.14.0 为 0 issues；`make -C backend build` 通过，版本 custom.4 |
+| 前端 critical / 全量 / 构建 / 定制模块 | lint/typecheck、30 文件 578 critical；387 文件 3,152 全量测试通过，覆盖 MCP 与既有 Key 模块；开关 false / true 两种构建通过（保留既有分块体积提示） |
+| embed 与隔离实例冒烟 | 开启 Key 模型测试的 embed 构建和 `go test -tags embed ./internal/web` 通过；二进制注入 custom.4、完整源码 SHA 76f03eb8e662315a34ae57fc9fe1f5a517c7b74d 与构建时间。临时 18082/16480、已升级副本库验证 health、静态 Key 页、管理员/普通用户登录、Key 列表、JWT 拒绝、非法 Key 拒绝；MCP 公共设置 false、资源及正式 discovery 503；0 次生成请求 |
+| 部署脚本 | apple-container 生命周期（mock CLI）、Compose 安全/网关变量/运行资源、Caddy 缓存与 SSE 检查通过；simple-mode-env 因本机无 Docker 未运行成功，交由 CI |
 | PostgreSQL/Redis 集成 | 本机无 Docker；由 GitHub Docker runner 执行，不以本机 skip 视为通过 |
-| 迁移、副本与旧版本兼容 | 待执行隔离验证；生产未验证 |
-| 架构与格式 | 提交前执行工作区/暂存区/完整范围 Gate 与 diff |
-| GitHub PR、CI、安全扫描 | 推送后以实际运行记录为准，不绕过门禁 |
+| 迁移、副本与旧版本兼容 | 当前完整 runner：空库 491ms、副本升级 60ms，重复运行 42/45ms；均为 300 个迁移、3 张 MCP 表。旧基线实际 runner 对升级后两库运行通过（45/43ms），既有 users/keys/accounts/groups 数量保持，现有运行库仍为 299。仅证明本地小型副本及旧迁移 runner 兼容，不代表生产应用完整回滚 |
+| 架构与格式 | 架构 Gate 自测试 14 项、完整同步范围 85 路径、暂存区检查及 diff 通过；文档围栏与 118 个本地链接检查通过 |
+| GitHub PR、CI、安全扫描 | 合并前必须通过；实际运行与评审记录见 [同步分支 Actions](https://github.com/chochoc/sub2api/actions?query=branch%3Async%2Fupstream-20261101) 及关联 PR，不能用本地结果替代 |
 
 私有构建/测试材料位于 `.dev/upstream-sync-20261101/`，不提交数据库、凭据、日志或程序。原有本地部署仍为 `0.2.19-custom.3-result-dialog-local`（构建源码 3800e8c07），本次不将旧运行状态误报为新源码部署。
+
+隔离冒烟开始前仅在副本中停用账号调度和渠道监控，使用独立 Redis，不连接真实生成供应商。临时 app/Redis、两个测试数据库及旧基线 worktree 均已清理，私有备份保留。MCP 授权/PKCE/撤销、SDK 互操作和 Responses 非流式/流式由真实路由与构造上游自动测试覆盖；本次未重新执行浏览器交互、真实供应商、支付/充值或完整生产 MaaS 验收。已有本地浏览器验收是旧版本记录，不冒充新版本证据。生产部署仍需手册 §9.3/§9.4/§11 的剩余环境验收与固定版本发布。

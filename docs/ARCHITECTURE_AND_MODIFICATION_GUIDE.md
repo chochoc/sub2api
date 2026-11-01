@@ -519,6 +519,7 @@ make check-architecture-index
   - `backend/internal/managementmcp/server_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
   - `backend/internal/middleware/rate_limiter.go`：可配置 IPv6 前缀聚合的失败关闭限流。
   - `backend/internal/middleware/rate_limiter_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/repository/api_key_cache_subscriber_test.go`：就绪轮询产生的重复通知不阻塞测试回调，保留真实取消断言；修复整套后端运行时暴露的测试自身死锁。
   - `backend/internal/repository/mcp_oauth.go`：授权、摘要、重放撤销及共享客户端签名密钥持久化。
   - `backend/internal/repository/mcp_oauth_integration_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
   - `backend/internal/repository/mcp_oauth_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
@@ -580,7 +581,7 @@ make check-architecture-index
   - `frontend/src/views/user/__tests__/MCPView.spec.ts`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
   - `frontend/vite.config.ts`：沿用 runtime i18n，修订新版 JIT/AST 注释和分包识别。
 - 关联正文：§1.1、§2、§3.3/§3.4、§4.4、§7.3.2、§9；领域说明 `docs/mcp.md` 与 `docs/UPSTREAM_SYNC_20261101.md`。
-- 验证与限制：按同步记录执行前后端 Gate、Wire、embed、MCP/协议与既有 Key 测试回归；结果按实际记录更新。生产部署、真实供应商和生产恢复演练不由源码合并自动证明。
+- 验证与限制：后端 unit/普通测试/lint/build、前端 578 critical 与 3,152 全量、开关两态构建、Wire、embed/web、14 项架构自测及 85 路径索引通过；空库/本地副本迁移与旧 runner 检查、隔离 HTTP 登录/Key/MCP 默认关闭冒烟通过。首次普通测试暴露的既有测试通知阻塞已仅在测试回调修正，100 次定向通过。CI 的真实 Docker integration 与安全扫描以同步 PR 为准；本地没有 Docker。生产部署、真实供应商、浏览器重验和生产恢复演练不由源码合并自动证明，详见同步记录。
 
 
 
