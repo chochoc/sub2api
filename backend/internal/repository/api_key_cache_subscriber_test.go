@@ -17,10 +17,19 @@ func TestAPIKeyCacheSubscriber_BlocksUntilContextCancellation(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	cache := NewAPIKeyCache(client)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	received := make(chan string, 1)
 	returned := make(chan error, 1)
 	go func() {
-		returned <- cache.SubscribeAuthCacheInvalidation(ctx, func(value string) { received <- value })
+		returned <- cache.SubscribeAuthCacheInvalidation(ctx, func(value string) {
+			// Readiness polling may publish more than once before receiving a
+			// value. Extra notifications must not block the subscriber callback
+			// and prevent it from observing context cancellation.
+			select {
+			case received <- value:
+			default:
+			}
+		})
 	}()
 
 	var value string

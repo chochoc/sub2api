@@ -26,6 +26,7 @@
 | [README_CN.md](../README_CN.md)、[README.md](../README.md) | 官方项目能力、客户端接入和部署概览；能力需对照 `backend/internal/server/routes/`，不能把 README 赞助商广告当作项目功能。 |
 | [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md) | 强制开发规范、分层、不变量、验证门禁、索引维护与评审阻断项。 |
 | [受限管理员密钥](admin-api-keys.md)、[GPT-5.5 订阅退役](OPENAI_GPT55_RETIREMENT.md) | v0.2.19 管理密钥权限/资源边界及订阅模型退役后的路由兼容说明。 |
+| [2026-11-01 官方 main 同步记录](UPSTREAM_SYNC_20261101.md) | v0.2.19 后 16 个官方提交的固定基线、MCP OAuth、非流式修复、迁移/配置、冲突与实际验证。 |
 | [v0.2.19 本地同步记录](UPSTREAM_SYNC_20261031.md) | 固定官方发布 commit 的合并范围、冲突决策、迁移/配置变化和实际验证结果。 |
 | [定制开发与上游同步手册](SUB2API_CUSTOMIZATION_AND_UPSTREAM_SYNC_GUIDE.md) | 本 Fork 的开发、上游合并和发布流程；当前分支/远端以 Git 实际状态为准。 |
 | [DEV_GUIDE.md](../DEV_GUIDE.md) | 开发环境、工具链和常见问题；包含历史 Windows 环境示例，非统一部署配置，差异见 §10。 |
@@ -42,6 +43,7 @@
 | [API Key 模型测试技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) | 用户密钥页模型发现、文本/图片单项与串行批量测试；独立前端模块使用现有 Key 网关，正常计费，无后端或数据库变更；真实上游/账务验收待完成。 |
 | [模型测试结果详情弹窗方案](API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md) | “查看结果”按需打开独立详情弹窗，复用结果与公共弹窗，不增加生成请求；说明关闭、焦点、滚动及批量生命周期。 |
 | [API Key 模型测试本地验收](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md) | 开启功能的源码嵌入部署、六种协议真实本地网关＋模拟上游验收、使用时间与 DONE 兼容修复；服务保持本机运行，真实供应商及生产发布未验收。 |
+| [平台管理 MCP](mcp.md) | 默认关闭的远程 MCP、OAuth S256 PKCE、显式范围/读写同意、撤销、工具目录、限流与审计；不等同于已有运维 skill 或普通网关 Key。 |
 | [插件开发教程](PLUGIN_DEVELOPMENT.md)、[公开插件协议](../backend/pkg/pluginapi/README.md) | `.s2plugin`、进程协议和宿主边界；公开定义在 `backend/pkg/pluginapi/v1/`。 |
 | [插件开发](../backend/pkg/pluginapi/docs/development.md)、[UI Bridge](../backend/pkg/pluginapi/docs/ui-bridge.md)、[包格式](../backend/pkg/pluginapi/docs/package-format.md)、[安全边界](../backend/pkg/pluginapi/docs/security.md) | 插件详细契约；宿主实现 `service/plugin_*.go`。 |
 | [渠道监控默认值](channel-monitor-v2-safe-defaults.md) | V1/V2、低负载历史回填与错误去重；对应 `service/channel_monitor_v2_aggregator.go` 及 repository。 |
@@ -60,7 +62,7 @@
 Sub2API 将平台生成的 API Key 请求分发到上游账户，负责鉴权、分组准入、调度、协议转换、并发、计量与计费，同时提供用户控制台、管理控制台和后台任务。
 
 - 后端：单个 Go 模块，`backend/go.mod` 当前声明 Go **1.27.3**，Gin HTTP、Wire 装配、Ent 与原生 SQL；业务数据库为 PostgreSQL，Redis 承担缓存、计数、锁和任务队列等职责。
-- 前端：`frontend/package.json` 中的 Vue 3、TypeScript、Vue Router、Pinia、Vite、Tailwind CSS 3、vue-i18n；包管理器 pnpm。CI 当前使用 Node 20、pnpm 9。
+- 前端：`frontend/package.json` 中的 Vue 3、TypeScript、Vue Router、Pinia、Vite、Tailwind CSS 3、vue-i18n；包管理器 pnpm。CI 当前使用 Node 24、pnpm 9。
 - 发布：Go 服务可通过 `embed` build tag 嵌入前端；普通后端构建与嵌入构建是不同产物。多实例正确性依赖共享数据库/Redis以及一致的必要密钥，不能仅靠进程内缓存。
 
 ```mermaid
@@ -139,12 +141,21 @@ flowchart LR
 | 登录、刷新、注册与认证回调 | `auth.go` | 公开入口配限流；需登录的子路由使用 JWT。身份实现还需读 `service/auth*.go`。 |
 | 用户控制台 `/api/v1` | `user.go` | JWT、用户状态/会话检查、面板限流与所有权；典型返回 `{code,message,data}`。 |
 | 管理接口 `/api/v1/admin` | `admin.go` | Admin Auth 支持管理员 JWT 或管理员 `x-api-key`，还有管理审计/合规及部分敏感操作的 step-up。普通网关 Key 不是管理员 Key。v0.2.19 新增 `adm_sc_` 受限管理密钥，按精确路由动作、资源策略、有效期与 IP 白名单授权；未登记的定制路由默认拒绝，完整管理员 JWT/旧管理密钥仍可使用既有接口。 |
+| 管理 MCP `/api/v1/mcp` | `mcp.go` | 默认关闭；显式配置 MCP_PUBLIC_URL 后使用独立 OAuth 授权，复用封闭目录对应的用户/管理员路由与权限；不接受面板 JWT/网关 Key 作为 MCP 凭据。 |
 | 模型广场 | `model_plaza.go` | Optional JWT 与公开设置控制，不能因未登录可读而开放写操作。 |
 | AI 网关 | `gateway.go` | API Key、分组/模型准入、协议特定错误结构；不套面板 envelope。 |
 | 支付 | `payment.go` | 用户订单 JWT、管理接口 Admin Auth；webhook 不使用面板 JWT，而由支付验签与订单校验保护。 |
 | 健康与通用入口 | `common.go` | 与业务鉴权不同；安装入口另见 `internal/setup/`。 |
 
 关键中间件：`api_key_auth.go`、`api_key_auth_google.go`、`jwt_auth.go`、`admin_auth.go`、`session_binding.go`、`step_up.go`、`admin_compliance.go`、`panel_rate_limit.go`。可信代理在 `server/http.go`，客户端 IP 解析影响登录绑定、限流和审计；修改时一起核对 `deploy/EDGE_SECURITY.md`。
+
+### 3.4 管理 MCP 与 OAuth
+
+`routes/mcp.go` 注册无状态 Streamable HTTP、OAuth 元数据/注册/兑换/撤销；`handler/mcp_oauth_handler.go` 处理协议与浏览器授权，`service/mcp_oauth_service.go` 负责 S256 PKCE、授权范围和凭证生命周期，`repository/mcp_oauth.go` 持久化摘要与撤销状态。`managementmcp/` 封闭工具目录通过私有 Gin router 复用现有业务 handler、所有权、step-up、审计和限流；不支持任意 URL 或任意路由代理。
+
+`mcp.public_url` / `MCP_PUBLIC_URL` 默认空，只有运营方明确配置可信 HTTPS 的 `/api/v1/mcp` 地址才启用（回环开发允许 HTTP）；不从 Host 推断。前端 `/oauth/mcp/authorize` 由用户明确同意个人/管理员、只读/读写范围，`/settings/mcp` 管理撤销。管理员读写授权必须 TOTP 和 step-up；退出角色、停用、撤销会话及凭证重放会限制或撤销授权。浏览器授权使用 JWT，客户端后续只使用独立 OAuth 凭据；细节见 [MCP 文档](mcp.md)。
+
+迁移 `249_mcp_oauth.sql` 新增 grants/codes/credentials 三表及索引，动态客户端注册使用共享 security_secrets 中的签名密钥，无匿名注册写入。代码合并不会自动开启此能力；实际程序启动仍会正常执行迁移。
 
 ## 4. 网关请求处理与修改位置
 
@@ -203,6 +214,8 @@ Handler 不只是参数转发：这里维护请求快照、平台归属、并发
 2026-10-02 复核：`openai_gateway_scheduling.go::openAICompatibleAccountEligibilityFailureReasonBeforeProfit` 和 `openai_account_scheduler.go` 对 account_model 来源路由检查账户是否显式拥有公共模型映射，不拥有时不得因优先级、粘性或传输能力而选中。参数兼容修复与 fallback 必须保留该所有权约束。
 
 ### 4.4 请求构造、转换、出站和流
+
+OAuth passthrough 的客户端 stream 标志与上游强制 SSE 分开处理：非流式 Responses 聚合为单个 JSON，incomplete/cancelled 终态仍返回对应 JSON；OAuth 上游缺少 Content-Type 时可用 SSE framing 识别。该修复不改变 Fork 的 strict/legacy 参数契约、cached_tokens presence 或结算路径。
 
 | 要改的行为 | 优先阅读的实现 |
 | --- | --- |
@@ -348,6 +361,10 @@ router/index.ts → views/ 或已有 features/ 页面 → components/ + composab
 
 “查看结果”在主弹窗上方打开 wide、z-index 60 的独立 `BaseDialog`，复用 `ModelTestResult`；仅主动点击时打开。关闭详情只清空模型选择，保留主弹窗、预览与队列；关闭主弹窗才执行会话清理。焦点、滚动锁和顶层 Escape 使用公共组件既有能力；具体交互与验收见 [详情弹窗方案](API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md)。
 
+### 7.3.2 MCP 授权与连接
+
+`api/mcp.ts` 读取连接配置和 JWT 用户授权/撤销接口；`MCPOAuthAuthorizeView.vue` 保留登录重定向中的完整 OAuth 查询、显示回调与权限并明确同意；`MCPView.vue` 展示当前连接和撤销。侧栏通过公共设置 `mcp_enabled` 隐藏默认关闭的入口。它们不获取或保存模型 Key 来代替 OAuth，既有 Key 模型测试的独立 fetch 与详情弹窗不受此次接入影响。
+
 ### 7.4 页面与后端关联速查
 
 | 功能 | 前端入口（`frontend/src/`） | 后端入口（`backend/internal/`） |
@@ -473,6 +490,100 @@ make check-architecture-index
 历史索引保留追溯信息；移动/删除后修订正文入口，历史条目注明替代位置。验证结果可链接专门报告。索引不是代码 diff 的全文复制，也不能用“杂项”“同上”“已同步”替代行为说明。
 
 <!-- architecture-change-index:start -->
+
+### 2026-11-01 · UPSTREAM-SYNC-MAIN-020 · 同步官方 v0.2.19 后 main
+
+- 来源与行为：从 Fork `3763090fa` 合并固定官方 `d851a3847`（v0.2.19 后 16 提交），引入默认关闭的管理 MCP/OAuth、非流式 Responses 修复与 Node 24；冲突保留既有安全补丁、文档规则和定制功能。
+- 逐文件代码路径：
+  - `.github/workflows/backend-ci.yml`：前端工具链同步 Node 24，保留 Fork 的架构门禁、手动入口及发布流程。
+  - `.github/workflows/release.yml`：前端工具链同步 Node 24，保留 Fork 的架构门禁、手动入口及发布流程。
+  - `.github/workflows/security-scan.yml`：前端工具链同步 Node 24，保留 Fork 的架构门禁、手动入口及发布流程。
+  - `backend/cmd/server/VERSION`：定制版本 0.2.19-custom.4，避免官方同步覆盖 Fork 版本。
+  - `backend/cmd/server/wire_gen.go`：由 Wire 重新生成 MCP OAuth 服务/handler 接线，保留 Fork APIKeyService 注入。
+  - `backend/go.mod`：引入 MCP SDK v1.4.1 及依赖，沿用 Go 1.27.3。
+  - `backend/go.sum`：官方 MCP 依赖校验和与既有 Wire 校验和并存。
+  - `backend/internal/config/config.go`：MCP public_url 默认关闭、地址格式与可信来源校验，保留 Chat 定制配置。
+  - `backend/internal/config/mcp_config_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/handler/admin/audit_log_handler.go`：MCP OAuth 认证来源、grant/tool 元数据的审计记录与查询。
+  - `backend/internal/handler/admin/setting_handler_update.go`：公共/缓存/DTO 设置传播 MCP 启用标志。
+  - `backend/internal/handler/dto/settings.go`：公共/缓存/DTO 设置传播 MCP 启用标志。
+  - `backend/internal/handler/handler.go`：MCP OAuth provider、构造器或 handlers 装配。
+  - `backend/internal/handler/mcp_oauth_handler.go`：OAuth 元数据、注册/兑换/撤销与 JWT 浏览器授权管理。
+  - `backend/internal/handler/mcp_oauth_handler_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/handler/setting_handler.go`：公共/缓存/DTO 设置传播 MCP 启用标志。
+  - `backend/internal/handler/wire.go`：MCP OAuth provider、构造器或 handlers 装配。
+  - `backend/internal/managementmcp/auth.go`：每请求 OAuth 身份、范围、Origin 校验及内部路由身份传递。
+  - `backend/internal/managementmcp/catalog.go`：封闭工具目录、参数 schema、动作及资源范围映射。
+  - `backend/internal/managementmcp/catalog_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/managementmcp/server.go`：无状态单 JSON-RPC 请求、限时/字节上限、脱敏及原业务路由调用。
+  - `backend/internal/managementmcp/server_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/middleware/rate_limiter.go`：可配置 IPv6 前缀聚合的失败关闭限流。
+  - `backend/internal/middleware/rate_limiter_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/repository/api_key_cache_subscriber_test.go`：就绪轮询产生的重复通知不阻塞测试回调，保留真实取消断言；修复整套后端运行时暴露的测试自身死锁。
+  - `backend/internal/repository/mcp_oauth.go`：授权、摘要、重放撤销及共享客户端签名密钥持久化。
+  - `backend/internal/repository/mcp_oauth_integration_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/repository/mcp_oauth_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/repository/user_repo.go`：停用用户或移除管理员角色时撤销对应 MCP 授权。
+  - `backend/internal/repository/wire.go`：MCP OAuth provider、构造器或 handlers 装配。
+  - `backend/internal/server/middleware/audit_log.go`：MCP OAuth 认证来源、grant/tool 元数据的审计记录与查询。
+  - `backend/internal/server/middleware/audit_log_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/server/middleware/cors.go`：OAuth 发现与 MCP 头部的跨域规则。
+  - `backend/internal/server/middleware/cors_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/server/middleware/panel_rate_limit.go`：MCP 独立入口与实际工具调用面板限流。
+  - `backend/internal/server/middleware/step_up.go`：MCP 管理员读写授权的 TOTP 二次验证。
+  - `backend/internal/server/middleware/step_up_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/server/router.go`：装配 MCP 与 OAuth 路由。
+  - `backend/internal/server/routes/mcp.go`：MCP/OAuth 端点及复用业务私有路由，限流失败关闭、IPv6 /64 合并。
+  - `backend/internal/server/routes/mcp_oauth_sdk_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/server/routes/mcp_oauth_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/server/routes/mcp_rate_limit_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/server/routes/mcp_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/server/routes/user.go`：JWT 用户的 MCP 配置、授权和撤销接口。
+  - `backend/internal/service/audit_log.go`：MCP OAuth 认证来源、grant/tool 元数据的审计记录与查询。
+  - `backend/internal/service/auth_service.go`：撤销用户会话时同步撤销 MCP 授权。
+  - `backend/internal/service/mcp_oauth_service.go`：PKCE、显式资源/权限范围、授权码和刷新轮换/撤销。
+  - `backend/internal/service/mcp_oauth_service_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/service/openai_gateway_passthrough.go`：保留客户端非流式语义；OAuth 缺 Content-Type 的 SSE 识别及异常终态 JSON。
+  - `backend/internal/service/openai_gateway_response_handling.go`：incomplete/cancelled 非流式终态聚合为 Responses JSON。
+  - `backend/internal/service/openai_oauth_passthrough_non_stream_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/service/setting_public.go`：公共/缓存/DTO 设置传播 MCP 启用标志。
+  - `backend/internal/service/setting_service_public_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/internal/service/settings_view.go`：公共/缓存/DTO 设置传播 MCP 启用标志。
+  - `backend/internal/service/wire.go`：MCP OAuth provider、构造器或 handlers 装配。
+  - `backend/internal/web/embed_on.go`：OAuth well-known 元数据跳过 SPA 回退。
+  - `backend/internal/web/embed_test.go`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `backend/migrations/249_mcp_oauth.sql`：新增三张 OAuth 表、摘要/授权约束与索引；无历史 SQL 改写。
+  - `deploy/.env.example`：声明或透传 MCP_PUBLIC_URL；默认空，不自动开启管理 MCP。
+  - `deploy/config.example.yaml`：声明或透传 MCP_PUBLIC_URL；默认空，不自动开启管理 MCP。
+  - `deploy/docker-compose.dev.yml`：声明或透传 MCP_PUBLIC_URL；默认空，不自动开启管理 MCP。
+  - `deploy/docker-compose.local.yml`：声明或透传 MCP_PUBLIC_URL；默认空，不自动开启管理 MCP。
+  - `deploy/docker-compose.standalone.yml`：声明或透传 MCP_PUBLIC_URL；默认空，不自动开启管理 MCP。
+  - `deploy/docker-compose.yml`：声明或透传 MCP_PUBLIC_URL；默认空，不自动开启管理 MCP。
+  - `frontend/src/api/mcp.ts`：JWT 用户的 MCP 配置、授权预览/决定、连接和撤销客户端。
+  - `frontend/src/components/icons/Icon.vue`：注册 MCP 品牌图标。
+  - `frontend/src/components/layout/AppSidebar.vue`：仅启用 MCP 时显示连接入口。
+  - `frontend/src/components/layout/__tests__/AppSidebar.spec.ts`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `frontend/src/i18n/locales/en/index.ts`：注册 MCP 中英文模块或对应授权/连接文案，保留 Key 测试文案。
+  - `frontend/src/i18n/locales/en/mcp.ts`：注册 MCP 中英文模块或对应授权/连接文案，保留 Key 测试文案。
+  - `frontend/src/i18n/locales/zh/index.ts`：注册 MCP 中英文模块或对应授权/连接文案，保留 Key 测试文案。
+  - `frontend/src/i18n/locales/zh/mcp.ts`：注册 MCP 中英文模块或对应授权/连接文案，保留 Key 测试文案。
+  - `frontend/src/router/__tests__/mcp-route.spec.ts`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `frontend/src/router/index.ts`：受登录保护的 MCP 授权/连接页面，保留 OAuth 登录回跳。
+  - `frontend/src/stores/app.ts`：公共设置缓存携带 MCP 启用标志。
+  - `frontend/src/types/index.ts`：公共设置类型增加 mcp_enabled。
+  - `frontend/src/utils/__tests__/featureFlags.spec.ts`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `frontend/src/utils/featureFlags.ts`：MCP 功能开关解析，默认关闭。
+  - `frontend/src/views/admin/AuditLogView.vue`：展示 MCP OAuth 审计身份。
+  - `frontend/src/views/auth/MCPOAuthAuthorizeView.vue`：明确展示客户端、回调、个人/管理员与读写同意。
+  - `frontend/src/views/auth/__tests__/MCPLoginRedirect.spec.ts`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `frontend/src/views/auth/__tests__/MCPOAuthAuthorizeView.spec.ts`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `frontend/src/views/user/MCPView.vue`：连接地址、应用授权列表及撤销交互。
+  - `frontend/src/views/user/__tests__/MCPView.spec.ts`：覆盖相邻 MCP/协议/界面行为、权限或兼容性的上游回归。
+  - `frontend/vite.config.ts`：沿用 runtime i18n，修订新版 JIT/AST 注释和分包识别。
+- 关联正文：§1.1、§2、§3.3/§3.4、§4.4、§7.3.2、§9；领域说明 `docs/mcp.md` 与 `docs/UPSTREAM_SYNC_20261101.md`。
+- 验证与限制：后端 unit/普通测试/lint/build、前端 578 critical 与 3,152 全量、开关两态构建、Wire、embed/web、14 项架构自测及 85 路径索引通过；空库/本地副本迁移与旧 runner 检查、隔离 HTTP 登录/Key/MCP 默认关闭冒烟通过。首次普通测试暴露的既有测试通知阻塞已仅在测试回调修正，100 次定向通过。CI 的真实 Docker integration 与安全扫描以同步 PR 为准；本地没有 Docker。生产部署、真实供应商、浏览器重验和生产恢复演练不由源码合并自动证明，详见同步记录。
+
+
 
 ### 2026-11-01 · KEY-MODEL-RESULT-DIALOG-001 · 按需打开模型测试详情弹窗
 
