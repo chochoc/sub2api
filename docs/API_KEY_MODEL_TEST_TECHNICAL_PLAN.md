@@ -434,11 +434,15 @@ OpenAI prompt/input、completion/output、details.cached_tokens 分别映射到�
 5. 测试所选、测试筛选、停止和包含图片。
 6. 模型、逐行协议、状态、结果/耗时、操作表格。
 7. 最新计划统计与分页。
-8. 选中结果详情。
+主弹窗不在列表底部渲染详情。“查看结果”按需打开独立的结果详情弹窗；单项/批量测试不自动打开。
 
 BaseDialog 使用 extra-wide，DataTable 自动适配桌面表格与窄屏卡片；输入和新增主要操作最小高度 44px。状态同时有文字，不只依靠颜色。
 
 ### 9.3 结果详情
+
+点击有结果行的“查看结果”，打开同级 `BaseDialog`（wide、z-index 60），标题为“测试结果详情”。复用 `ModelTestResult`，从当前会话的结果与图片存储读取最新状态，不新增 API 调用。
+
+右上角、底部“关闭详情”和 Escape 只关闭详情，点击遮罩不关闭；保留主弹窗的筛选、分页、勾选、滚动位置及结果，焦点返回发起按钮。查看/关闭详情不停止批量，也不释放预览。刷新目录、切换 Key、关闭主弹窗或卸载时清除详情，沿用原有会话资源清理。实现与验证见 [详情弹窗方案](API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md)。
 
 显示请求/返回模型、协议端点、流式、时间、总耗时、首次有效内容耗时、HTTP 状态、网关 X-Client-Request-ID、usage、图片数及安全错误。
 
@@ -458,7 +462,7 @@ HTTPS 图片 URL 拒绝 userinfo、HTTP 和非 HTTPS scheme，使用 no-referrer
 
 覆盖加载、空目录、失败、部分非法目录、Key 不可用、待手动配置、执行、完成、取消、超时、费用确认和运行中关闭。
 
-运行中关闭要求“停止并关闭 / 继续测试”；组件卸载直接清理。复用 BaseDialog 焦点管理与 Escape，所有选择控件有 label，错误通过 role=alert，进度使用状态文字。
+运行中关闭主弹窗要求“停止并关闭 / 继续测试”；关闭详情不触发该流程。组件卸载直接清理。复用 BaseDialog 焦点管理与顶层 Escape，所有选择控件有 label，错误通过 role=alert，进度使用状态文字。
 
 ## 10. 安全、计费和配置
 

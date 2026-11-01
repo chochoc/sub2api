@@ -1,6 +1,6 @@
 # API Key 模型测试：本地部署与验收记录
 
-> **当前部署（2026-11-01）**：已从干净的 `main` 提交 `0f2b04c2cd3b3549ed6467ff0783c736edc2a28d` 重新构建并部署 `0.2.19-custom.2-main-local`，模型测试开关开启，服务继续在本机运行。新增验收与备份记录见 §7；§1–§6 保留为 2026-10-31 的历史记录，不能作为当前产物摘要。
+> **当前部署（2026-11-01）**：已从干净代码提交 `3800e8c079a83f6f5737ac35ea132e960a105919` 部署 `0.2.19-custom.3-result-dialog-local`，开启模型测试及独立结果详情弹窗，本地服务保持运行。当前产物及验收见 §8；§1–§7 保留历史记录。GitHub Actions 已恢复，功能源码 CI 与安全扫描通过；合入状态以 [PR #6](https://github.com/chochoc/sub2api/pull/6) 为准。
 
 > 日期：2026-10-31（Asia/Shanghai）。状态：当前源码已在本机运行，功能开关已开启，本地端到端验收通过。供应商响应为本地 fixture，未进行真实供应商付费调用或生产部署。
 >
@@ -167,3 +167,68 @@ node deploy/local-source-https.mjs stop
 | 清理与保留 | 临时 Key、账号、分组、用户均删除，清理失败 0；活动资源数量恢复到测试前，临时会话文件删除，模拟上游停止；原有本地数据和真实服务保留 |
 
 本轮通过真实嵌入 UI、本地 HTTPS、Sub2API 网关与本地模拟上游验证。未进行真实供应商付费调用、生产部署、生产迁移或备份恢复演练；模拟图片和本地账务记录不能证明真实供应商生图或账单一致性。本次没有业务源码变更，未机械重跑全套 Go 业务测试或全量 Vitest，不能将此前其他提交的检查当作本轮执行结果。
+
+## 8. 结果详情弹窗部署与验收（2026-11-01）
+
+### 8.1 产物、备份与状态
+
+本次按 [结果详情弹窗方案](API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md) 先落盘方案，再修改代码和相关文档；从最新干净 main 创建 `fix/key-model-test-result-dialog`，代码提交和 PR 可追溯。
+
+| 项目 | 实际值 |
+| --- | --- |
+| 部署源码 | 干净提交 `3800e8c079a83f6f5737ac35ea132e960a105919` |
+| 版本 | `0.2.19-custom.3-result-dialog-local` |
+| 构建时间（UTC） | `2026-11-01T01:46:08Z` |
+| 二进制 SHA-256 | `6322e6b79d65bc6eed06a6fd12c00b516b0313dfa9745ccecee87efaceaf042b` |
+| 构建 | Go 1.27.3、CGO_ENABLED=0、embed、trimpath；Node v24.19.0、pnpm 9.15.9；`VITE_KEY_MODEL_TEST_ENABLED=true` |
+| 备份 | `.dev/local-https/backups/result-dialog-20261101T014714Z/` |
+| 私有证据 | `.dev/local-https/result-dialog-20261101/` 的部署清单、测试日志、browser-results.json、中英文截图及清理结果，不提交凭据或截图 |
+| 入口 | `https://127.0.0.1:8443/keys`；`http://127.0.0.1:18080/keys` |
+| GitHub | [PR #6](https://github.com/chochoc/sub2api/pull/6)，功能分支已推送；CI/合并进度见 §8.4 |
+
+替换前生成 PostgreSQL custom dump 并验证 `pg_restore --list`，停止本实例后备份 PostgreSQL、Redis、应用数据、配置、凭据、证书及旧程序。新程序先构建为 `.next` 后替换，没有原位覆盖运行程序或清空数据库。本次无新 migration；后续 CI/文档提交不改变已构建二进制的来源。回滚可停止本实例、恢复备份的已验证旧程序并启动；源码恢复原组件及文案后会恢复底部详情展示。本次没有执行备份恢复演练。
+
+### 8.2 自动化与浏览器结果
+
+| 检查 | 实际结果 |
+| --- | --- |
+| lint、类型及 critical 测试 | `make test-frontend` 通过，30 文件 / 578 项 |
+| 受影响测试 | 11 文件 / 131 项通过，其中详情组件 16 项；真实 BaseDialog 保留 Teleport、Escape、焦点和滚动锁逻辑 |
+| 双语、开启功能构建、embed/web 测试 | 通过，保留既有大 chunk / Browserslist 提示 |
+| 仅显式查看 | 单项/批量完成或失败均不自动弹出；点击正确模型显示独立详情，主弹窗无底部详情；查看不增加 API/生成请求 |
+| 中英文、明暗主题 | 实际 Chrome 四种组合通过；390px 详情边界位于视口内、详情正文无横向溢出，长文本及弹窗正文可内部滚动 |
+| 顶层关闭 | 右上角、底部和 Escape 仅关闭详情；遮罩不关闭；焦点返回发起按钮、父弹窗滚动位置与 body 滚动锁保留 |
+| 图片与错误 | 固定 PNG 可解码；关闭再打开沿用相同 Blob URL，不重新生成；失败详情显示模拟上游错误 |
+| 批量实时更新 | 查看运行中结果后状态变为成功，关闭详情不取消下一项；批量结束不自动打开 |
+| 刷新与主关闭 | 刷新后无旧结果/详情；主弹窗关闭后释放滚动锁。切换 Key、选择/筛选/分页保留及预览释放另有组件回归覆盖 |
+| 请求与用量 | 最终中英文各 5 次生成请求，含各一次预期失败；8 条成功用量均归属专用用户及正确 Key，未新增结算路径 |
+| 权限回归 | 越权读取 404；无效/禁用 Key 401；IP 黑名单 403；零余额发现模型 403 / INSUFFICIENT_BALANCE |
+| 运行与清理 | 替换后/清理后严格 CA 的 HTTPS smoke、嵌入资源、管理员登录、无 Key 401 通过；pageerror=0；模拟上游停止、临时凭据删除、资源清理失败 0 |
+
+测试通过本机 Chrome → HTTPS Caddy → 嵌入 UI → 真实本地网关 → `127.0.0.1:18181` 模拟上游执行，只使用合成凭据。最初重复验收耗尽临时 Key 额度，网关按规则返回 429；清理旧 fixture 并换用足额测试资源后完成最终一轮。未为此修改产品代码或绕过计费。
+
+测试后通过只读管理诊断和数据库计数确认，活动资源恢复到测试前：users=2、api_keys=2、accounts=1、groups=2。四组件继续运行且仅监听回环地址。测试用量及软删除记录按原策略保留。
+
+### 8.3 验证边界
+
+390px 检查针对本次详情弹窗。英文背景 KeysView 中长分组名的现有下拉控件可将背景文档撑宽至 431px；详情本身无该问题，本次未修改 KeysView，不宣称整个背景页面没有横向溢出。
+
+本次未进行真实供应商付费请求、生产部署或生产迁移/恢复演练。长文本和图片均为本地构造数据；模拟成功不代表供应商可用或真实账单已核对。本地 Node 24 结果不替代 Node 20 的 CI。
+
+### 8.4 GitHub 门禁
+
+最初 push / pull_request 未创建运行，手动触发返回 HTTP 422：`Actions has been disabled for this repository`，尽管仓库权限 API 为 enabled=true、workflow active。为既有 CI、安全扫描增加 workflow_dispatch；原有 job、权限和触发条件保留，没有绕过门禁合并。
+
+所有者恢复 Actions 后重新创建实际运行；首轮暴露架构脚本只支持 push/PR，已补齐手动事件的比较范围：默认分支共同祖先到当前源码；默认分支上检查最后提交，缺失历史仍失败。新增真实临时 Git 仓库回归确认未登记改动仍被拒绝，本地 14 项通过。
+
+功能源码 `8379c8f95f8792be3849ddcff59a7140d01d6cf4` 的实际结果：
+
+| 运行 | 结果 |
+| --- | --- |
+| [PR CI 41263515589](https://github.com/chochoc/sub2api/actions/runs/41263515589) | 全部通过：架构索引、部署脚本、release helpers、Node 20 前端、golangci-lint、Go 单元与集成测试 |
+| [push CI 41263512444](https://github.com/chochoc/sub2api/actions/runs/41263512444) | 同样全部通过 |
+| [手动 CI 41263536109](https://github.com/chochoc/sub2api/actions/runs/41263536109) | 全部通过，验证手动入口及完整功能差异门禁 |
+| [PR 安全扫描 41263515621](https://github.com/chochoc/sub2api/actions/runs/41263515621) | 前后端全部通过 |
+| [push 安全扫描 41263512532](https://github.com/chochoc/sub2api/actions/runs/41263512532) | 前后端全部通过 |
+
+旧提交 `7f1078cd8` 的初次手动 CI 在发现架构脚本事件不兼容后取消，不作为通过证据；CLA 仅适用官方仓库，在本 Fork 按原 workflow 条件跳过。以上结果对应功能源码，后续只补验证文档，未替换已部署二进制。完整 PR 差异、架构说明、兼容性与验证证据已静态复核；最终提交的检查及合并记录以 [PR #6](https://github.com/chochoc/sub2api/pull/6) 为准。

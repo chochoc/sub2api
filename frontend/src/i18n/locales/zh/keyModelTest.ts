@@ -8,7 +8,7 @@ export default {
   selectPage: '选择本页', selectModel: '选择模型 {model}', profileFor: '{model} 的测试方式', details: '查看结果', noModels: '没有可显示的模型',
   invalidItems: '有 {count} 个目录条目格式异常，已跳过。',
   progress: '已完成 {completed}/{total}；成功 {success}，失败或取消 {failed}，不完整 {incomplete}，跳过 {skipped}',
-  close: '关闭', confirmTitle: '确认测试计划', confirmRun: '开始测试（正常计费）',
+  close: '关闭', detailsTitle: '测试结果详情', closeDetails: '关闭详情', confirmTitle: '确认测试计划', confirmRun: '开始测试（正常计费）',
   confirmPlan: '将发送 {count} 次生成请求，其中包含 {images} 项图片测试，跳过 {skipped} 项。图片使用上游默认尺寸和质量，实际费用以使用记录为准。',
   closeTitle: '停止测试并关闭？', stopAndClose: '停止并关闭', keepTesting: '继续测试',
   copyDiagnostics: '复制诊断摘要', generatedImage: '模型测试生成的图片',
