@@ -38,6 +38,7 @@
 | [seedance-api.md](seedance-api.md) | Ark 原生视频接口与轮询结算；对应 `handler/seedance.go`、`service/seedance.go`。 |
 | [PAYMENT_CN.md](PAYMENT_CN.md)、[PAYMENT.md](PAYMENT.md) | 内置支付配置与订单操作；对应 `routes/payment.go`、`service/payment*.go`、`internal/payment/`。 |
 | [管理支付集成 API](ADMIN_PAYMENT_INTEGRATION_API.md) | 外部系统充值、兑换幂等和嵌入页参数；对应 `handler/admin/redeem_handler.go`、`service/idempotency.go`、`frontend/src/utils/embedded-url.ts`。 |
+| [用户鉴权技术方案参考](REF_AUTH_TECHNICAL_PLAN.md) | 既有业务系统文档，仅作为模型测试方案的章节与详细程度参考；其中数据库、角色、路径和实施状态不代表 Sub2API，实现说明以本仓库源码及领域文档为准。 |
 | [API Key 模型测试技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) | 用户密钥页模型发现、文本/图片单项与串行批量测试；独立前端模块使用现有 Key 网关，正常计费，无后端或数据库变更；真实上游/账务验收待完成。 |
 | [API Key 模型测试本地验收](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md) | 开启功能的源码嵌入部署、六种协议真实本地网关＋模拟上游验收、使用时间与 DONE 兼容修复；服务保持本机运行，真实供应商及生产发布未验收。 |
 | [插件开发教程](PLUGIN_DEVELOPMENT.md)、[公开插件协议](../backend/pkg/pluginapi/README.md) | `.s2plugin`、进程协议和宿主边界；公开定义在 `backend/pkg/pluginapi/v1/`。 |
@@ -469,6 +470,13 @@ make check-architecture-index
 历史索引保留追溯信息；移动/删除后修订正文入口，历史条目注明替代位置。验证结果可链接专门报告。索引不是代码 diff 的全文复制，也不能用“杂项”“同上”“已同步”替代行为说明。
 
 <!-- architecture-change-index:start -->
+
+### 2026-11-01 · DOC-AUTH-REFERENCE-001 · 纳入技术方案参考文档
+
+- 原因与行为：补交此前保留为未跟踪文件的 `docs/REF_AUTH_TECHNICAL_PLAN.md`，供 API Key 模型测试方案引用其章节结构与详细程度；增加跨系统引用边界说明，替换示例登录口令。
+- 文档入口：本指南 §1.1。原系统配套文档/页面未导入，其相对链接明确标记为不可用；不把原文的已实施状态解释为 Sub2API 能力。
+- 验证：代码围栏、参考文档内部章节链接、入口链接、敏感值模式扫描及 diff/架构索引检查；纯文档变更，无运行时、数据库、部署或其他仓库改动。
+
 
 ### 2026-10-31 · KEY-MODEL-TEST-001 · 用户 API Key 模型测试
 
