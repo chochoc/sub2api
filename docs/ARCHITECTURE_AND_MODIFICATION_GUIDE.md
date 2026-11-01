@@ -485,7 +485,7 @@ make check-architecture-index
   - `.github/workflows/backend-ci.yml`：保留原有触发与检查，补充 workflow_dispatch，以便自动事件未创建运行时对指定分支执行原有 CI。
   - `.github/workflows/security-scan.yml`：相同的手动入口执行原有安全扫描，检查内容与权限不变。
 - 正文章节与文档：本指南 §1.1、§7.3.1；`docs/API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md`、原模型测试方案 §9；本地验收记录按实际部署结果追加。
-- 兼容与验证：不改公共 BaseDialog、网关、后端、计费、数据实体或产品开关。lint/类型、578 项 critical、131 项定向（含真实弹窗逻辑）、双语、开启功能构建及 embed/web 测试通过；本地浏览器及 GitHub CI 按方案及验收记录补充实际结果。手动 CI 入口须经 YAML 结构比对及 GitHub 实际执行验证。
+- 兼容与验证：不改公共 BaseDialog、网关、后端、计费、数据实体或产品开关。lint/类型、578 项 critical、131 项定向（含真实弹窗逻辑）、双语、开启功能构建及 embed/web 测试通过；本地 embed 版 Chrome 中英文、明暗主题、390px 详情布局、关闭/焦点/滚动、图片与批量更新通过，详见本地验收 §8；不把英文背景 KeysView 的既有长分组名溢出记为本次通过。手动 CI 入口经 YAML 结构比对，但 GitHub 返回 422 / Actions disabled，CI 尚未通过、PR #6 尚未合并。
 
 ### 2026-11-01 · LOCAL-MAIN-DEPLOY-001 · 合入 main 后本机重新部署与验收
 
