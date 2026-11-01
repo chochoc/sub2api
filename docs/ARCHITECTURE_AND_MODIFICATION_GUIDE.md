@@ -471,6 +471,12 @@ make check-architecture-index
 
 <!-- architecture-change-index:start -->
 
+### 2026-11-01 · LOCAL-MAIN-DEPLOY-001 · 合入 main 后本机重新部署与验收
+
+- 原因与行为：从干净的 `0f2b04c2cd3b3549ed6467ff0783c736edc2a28d` 构建开启模型测试的 embed 产物，备份并替换本地旧程序；记录实际版本、摘要、数据保留及测试资源清理。
+- 文档：`docs/API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md` §7、`docs/LOCAL_SOURCE_HTTPS_DEPLOYMENT.md` 当前状态；本指南 §1.1 已有入口。仅更新部署证据，无业务源码、配置默认值或迁移变更。
+- 验证与限制：578 项 critical、113 项定向测试、前端及 embed 构建、web 测试、HTTPS smoke、浏览器六协议 10 项、串行批量及权限/用量归属通过；未进行真实供应商、生产或备份恢复验收。
+
 ### 2026-11-01 · DOC-AUTH-REFERENCE-001 · 纳入技术方案参考文档
 
 - 原因与行为：补交此前保留为未跟踪文件的 `docs/REF_AUTH_TECHNICAL_PLAN.md`，供 API Key 模型测试方案引用其章节结构与详细程度；增加跨系统引用边界说明，替换示例登录口令。
