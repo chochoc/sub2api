@@ -146,6 +146,34 @@ class ArchitectureIndexTest(unittest.TestCase):
                 self.record("backend/main.go")
                 self.commit()
 
+    def test_manual_ci_rejects_unindexed_feature_changes(self):
+        self.git("update-ref", "refs/remotes/origin/main", self.base)
+        self.write("backend/main.go", "package changed\n")
+        self.commit()
+        event_file = self.root / "event.json"
+        env = dict(os.environ, GITHUB_EVENT_PATH=str(event_file), GITHUB_EVENT_NAME="workflow_dispatch")
+        for expected in (1, 0):
+            event_file.write_text(json.dumps({"repository": {"default_branch": "main"}}))
+            result = subprocess.run([sys.executable, "-B", str(SCRIPT), "--ci"], cwd=self.root, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+            event_file.unlink()
+            if expected:
+                self.record("backend/main.go")
+                self.commit()
+
+    def test_manual_ci_on_default_branch_checks_last_commit(self):
+        self.write("backend/main.go", "package changed\n")
+        self.commit()
+        head = self.git("rev-parse", "HEAD").strip()
+        self.git("update-ref", "refs/remotes/origin/main", head)
+        event = {"repository": {"default_branch": "main"}}
+        self.assertEqual(ci_range(self.root, event, "workflow_dispatch"), (self.base, head))
+        self.gate(1, "--base", self.base, "--head", head)
+
+    def test_manual_ci_requires_default_branch_history(self):
+        with self.assertRaises(ValueError):
+            ci_range(self.root, {"repository": {"default_branch": "missing"}}, "workflow_dispatch")
+
     def test_deleting_guide_is_rejected_even_without_code_changes(self):
         (self.root / GUIDE).unlink()
         self.gate(1)

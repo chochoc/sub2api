@@ -1,6 +1,6 @@
 # API Key 模型测试：结果详情弹窗技术方案
 
-> 版本：v1.0。日期：2026-11-01。状态：已实现，通过自动化、embed 构建及本地浏览器验收；PR #6 已推送，GitHub Actions 拒绝执行，CI/合并尚未完成。本文先以“待实施”落盘，再修改代码，以下按真实证据更新状态。
+> 版本：v1.0。日期：2026-11-01。状态：已实现，通过自动化、embed 构建及本地浏览器验收；PR #6 已推送，Actions 已恢复并开始运行；最终 CI/合并尚待确认。本文先以“待实施”落盘，再修改代码，以下按真实证据更新状态。
 >
 > 基线：`02cb2d8148b3a7c4a046fe0571dde812f3e6356e`。遵循 [定制与同步手册](SUB2API_CUSTOMIZATION_AND_UPSTREAM_SYNC_GUIDE.md)、[开发规范](DEVELOPMENT_RULES.md)；基础功能见 [模型测试方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md)。
 
@@ -86,7 +86,7 @@ python3 tools/check_architecture_index.py --staged
 
 从更新后的干净 main 创建 `fix/key-model-test-result-dialog`，先落盘本文，再修改组件、测试和文案。完成本地检查与部署后更新验证状态，推送到 origin，创建到 main 的 PR，按手册完成适用 CI/评审后合并；不直接推 main、不改写历史、不向 upstream 推送。
 
-实际推送代码并创建 PR #6 后，GitHub 未为自动 push/pull_request 事件创建运行或 check suite，工作流状态为 active，仓库权限 API 返回 enabled=true。为执行原有检查，给既有 CI 与 Security Scan 补充 `workflow_dispatch`，原触发、job 内容与权限保持不变；对功能分支手动运行，不能把无检查结果当作通过。此项属于检查触发能力，不改变产品构建开关。实际手动触发 CI 和 Security Scan 均返回 HTTP 422：`Actions has been disabled for this repository`。再次保存现有 enabled=true 设置、启用既有 workflow 后仍被拒绝，未产生运行记录；未绕过门禁合并。需仓库所有者在 GitHub 核查 Actions/账号限制，恢复后运行这两个工作流并完成评审再合入。
+实际推送代码并创建 PR #6 后，GitHub 未为自动 push/pull_request 事件创建运行或 check suite，工作流状态为 active，仓库权限 API 返回 enabled=true。为执行原有检查，给既有 CI 与 Security Scan 补充 `workflow_dispatch`，原触发、job 内容与权限保持不变；对功能分支手动运行，不能把无检查结果当作通过。此项属于检查触发能力，不改变产品构建开关。实际手动触发 CI 和 Security Scan 均返回 HTTP 422：`Actions has been disabled for this repository`。再次保存现有 enabled=true 设置、启用既有 workflow 后仍被拒绝，未产生运行记录；未绕过门禁合并。所有者随后确认已恢复；重新手动触发成功创建 CI `41263412745` 和安全扫描 `41263412742`。首轮执行暴露架构脚本仅支持 push/PR，因此补齐 workflow_dispatch：从默认分支共同祖先检查全部功能差异；在默认分支上检查最后提交，缺失历史仍失败。真实临时仓库回归确认未登记改动会被拒绝，不跳过门禁。最终按最新提交的实际运行结果更新。
 
 代码回滚还原本次组件/文案修改；本地程序回滚使用备份的已验证产物。没有本次新增迁移，但仍需确认备份与运行基线匹配。恢复旧版会恢复列表底部的详情展示方式。
 
@@ -100,11 +100,11 @@ python3 tools/check_architecture_index.py --staged
 | 受影响模块、KeysView 与 BaseDialog 定向检查 | 11 文件 / 131 项通过，包含 16 项详情交互测试 |
 | `check:i18n` | 双语完整性检查通过 |
 | 开启功能的前端构建 | 通过；有既有大 chunk / Browserslist 提示，未修改依赖或关闭检查 |
-| 架构索引与 diff | 代码提交的工作区/暂存区检查通过；PR 共覆盖 6 个代码路径（含两个仅增加手动触发的 workflow） |
+| 架构索引与 diff | 代码提交的工作区/暂存区检查通过；PR 共覆盖 8 个代码路径（含两个仅增加手动触发的 workflow 及架构门禁脚本/测试） |
 | embed 构建与 `go test -tags embed ./internal/web` | 通过，当前本机运行版本 `0.2.19-custom.3-result-dialog-local` |
 | 实际 Chrome + 本地 HTTPS + 模拟上游 | 中英文、明暗主题、390px 详情布局、长结果、关闭/焦点/滚动锁、图片、错误、批量实时更新通过，pageerror=0 |
 | 本地 HTTPS smoke、权限及清理 | 通过；资源数恢复到测试前，清理失败 0 |
-| GitHub CI / Security Scan | 自动事件无运行；手动触发 HTTP 422 被拒绝，尚未通过，PR #6 不合并 |
+| GitHub CI / Security Scan | 初始 422 阻塞；所有者恢复后创建实际运行，待最新提交全部通过后合并 |
 
 真实弹窗集成测试仅 stub 过渡动画与不相关展示控件，保留 BaseDialog 的真实 Teleport、事件、焦点和滚动锁逻辑；部署后的真实 Chrome 已验证动画与布局。
 

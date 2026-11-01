@@ -69,15 +69,19 @@ def ci_range(root, event, event_name):
         head = event["pull_request"]["head"]["sha"]
         base = git(root, "merge-base", event["pull_request"]["base"]["sha"], head).strip()
         return base, head
-    if event_name != "push":
+    if event_name == "workflow_dispatch":
+        head = git(root, "rev-parse", "HEAD").strip()
+    elif event_name == "push":
+        head = event["after"]
+        if not head.strip("0"):
+            raise ValueError("deleted-ref pushes have no code snapshot to check")
+        base = event["before"]
+        if base.strip("0"):
+            return base, head
+    else:
         raise ValueError(f"unsupported CI event: {event_name}")
-    head = event["after"]
-    if not head.strip("0"):
-        raise ValueError("deleted-ref pushes have no code snapshot to check")
-    base = event["before"]
-    if base.strip("0"):
-        return base, head
-    # New branch/tag: compare with the default branch, never silently skip it.
+    # Manual run or new branch/tag: compare with the default branch. If HEAD
+    # is already on that branch, check its latest change rather than no-op.
     default = event["repository"]["default_branch"]
     base = git(root, "merge-base", f"refs/remotes/origin/{default}", head).strip()
     if base == head:
@@ -91,7 +95,7 @@ def main(argv=None):
     parser.add_argument("--base", help="baseline revision; defaults to HEAD for a local check")
     parser.add_argument("--head", help="compare committed snapshots instead of the working tree")
     parser.add_argument("--staged", action="store_true", help="check only the index against HEAD")
-    parser.add_argument("--ci", action="store_true", help="resolve range from GitHub push/PR event")
+    parser.add_argument("--ci", action="store_true", help="resolve range from GitHub push/PR/manual event")
     args = parser.parse_args(argv)
     if args.staged and (args.base or args.head or args.ci):
         parser.error("--staged cannot be combined with --base, --head or --ci")

@@ -1,6 +1,6 @@
 # API Key 模型测试：本地部署与验收记录
 
-> **当前部署（2026-11-01）**：已从干净代码提交 `3800e8c079a83f6f5737ac35ea132e960a105919` 部署 `0.2.19-custom.3-result-dialog-local`，开启模型测试及独立结果详情弹窗，本地服务保持运行。当前产物及验收见 §8；§1–§7 保留历史记录。GitHub PR #6 已推送，CI 被平台拒绝，尚未合并。
+> **当前部署（2026-11-01）**：已从干净代码提交 `3800e8c079a83f6f5737ac35ea132e960a105919` 部署 `0.2.19-custom.3-result-dialog-local`，开启模型测试及独立结果详情弹窗，本地服务保持运行。当前产物及验收见 §8；§1–§7 保留历史记录。GitHub PR #6 已推送，Actions 恢复后验证运行中，尚未合并。
 
 > 日期：2026-10-31（Asia/Shanghai）。状态：当前源码已在本机运行，功能开关已开启，本地端到端验收通过。供应商响应为本地 fixture，未进行真实供应商付费调用或生产部署。
 >
@@ -184,7 +184,7 @@ node deploy/local-source-https.mjs stop
 | 备份 | `.dev/local-https/backups/result-dialog-20261101T014714Z/` |
 | 私有证据 | `.dev/local-https/result-dialog-20261101/` 的部署清单、测试日志、browser-results.json、中英文截图及清理结果，不提交凭据或截图 |
 | 入口 | `https://127.0.0.1:8443/keys`；`http://127.0.0.1:18080/keys` |
-| GitHub | [PR #6](https://github.com/chochoc/sub2api/pull/6)，功能分支已推送；CI/合并未完成，见 §8.4 |
+| GitHub | [PR #6](https://github.com/chochoc/sub2api/pull/6)，功能分支已推送；CI/合并进度见 §8.4 |
 
 替换前生成 PostgreSQL custom dump 并验证 `pg_restore --list`，停止本实例后备份 PostgreSQL、Redis、应用数据、配置、凭据、证书及旧程序。新程序先构建为 `.next` 后替换，没有原位覆盖运行程序或清空数据库。本次无新 migration；后续 CI/文档提交不改变已构建二进制的来源。回滚可停止本实例、恢复备份的已验证旧程序并启动；源码恢复原组件及文案后会恢复底部详情展示。本次没有执行备份恢复演练。
 
@@ -220,3 +220,5 @@ node deploy/local-source-https.mjs stop
 原有 push / pull_request 未创建任何运行或 check suite。为既有 CI 和 Security Scan 仅增加 `workflow_dispatch`；YAML 结构对比确认原有 job、权限和触发条件不变。手动调用两个 workflow 均被 GitHub HTTP 422 拒绝：`Actions has been disabled for this repository`。仓库权限 API 却返回 enabled=true，workflow 状态为 active；保存相同设置并重新启用 workflow 后再次调用仍失败。
 
 此为未解决的平台执行阻塞，不能视为通过。已推送 PR，保留可评审结果，不直接推 main 或绕过 CI 合并。需仓库所有者核查 GitHub Actions 页面及账号级限制；恢复执行后运行 CI、安全扫描并完成评审，再按同步手册合入 main。
+
+所有者随后恢复 Actions，已成功创建 CI `41263412745`、Security Scan `41263412742`。补齐架构门禁脚本的 workflow_dispatch 范围：检查默认分支共同祖先到当前源码；默认分支上检查最后提交，缺失历史仍报错。新增真实临时 Git 仓库回归，确保不把手动运行变成空检查。最终结果以最新提交运行记录为准，历史 422 不代表当前仍不可执行。
