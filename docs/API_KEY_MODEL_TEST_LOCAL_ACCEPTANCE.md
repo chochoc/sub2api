@@ -1,6 +1,6 @@
 # API Key 模型测试：本地部署与验收记录
 
-> **当前部署（2026-11-01）**：已从干净代码提交 `3800e8c079a83f6f5737ac35ea132e960a105919` 部署 `0.2.19-custom.3-result-dialog-local`，开启模型测试及独立结果详情弹窗，本地服务保持运行。当前产物及验收见 §8；§1–§7 保留历史记录。GitHub PR #6 已推送，Actions 恢复后验证运行中，尚未合并。
+> **当前部署（2026-11-01）**：已从干净代码提交 `3800e8c079a83f6f5737ac35ea132e960a105919` 部署 `0.2.19-custom.3-result-dialog-local`，开启模型测试及独立结果详情弹窗，本地服务保持运行。当前产物及验收见 §8；§1–§7 保留历史记录。GitHub Actions 已恢复，功能源码 CI 与安全扫描通过；合入状态以 [PR #6](https://github.com/chochoc/sub2api/pull/6) 为准。
 
 > 日期：2026-10-31（Asia/Shanghai）。状态：当前源码已在本机运行，功能开关已开启，本地端到端验收通过。供应商响应为本地 fixture，未进行真实供应商付费调用或生产部署。
 >
@@ -217,8 +217,18 @@ node deploy/local-source-https.mjs stop
 
 ### 8.4 GitHub 门禁
 
-原有 push / pull_request 未创建任何运行或 check suite。为既有 CI 和 Security Scan 仅增加 `workflow_dispatch`；YAML 结构对比确认原有 job、权限和触发条件不变。手动调用两个 workflow 均被 GitHub HTTP 422 拒绝：`Actions has been disabled for this repository`。仓库权限 API 却返回 enabled=true，workflow 状态为 active；保存相同设置并重新启用 workflow 后再次调用仍失败。
+最初 push / pull_request 未创建运行，手动触发返回 HTTP 422：`Actions has been disabled for this repository`，尽管仓库权限 API 为 enabled=true、workflow active。为既有 CI、安全扫描增加 workflow_dispatch；原有 job、权限和触发条件保留，没有绕过门禁合并。
 
-此为未解决的平台执行阻塞，不能视为通过。已推送 PR，保留可评审结果，不直接推 main 或绕过 CI 合并。需仓库所有者核查 GitHub Actions 页面及账号级限制；恢复执行后运行 CI、安全扫描并完成评审，再按同步手册合入 main。
+所有者恢复 Actions 后重新创建实际运行；首轮暴露架构脚本只支持 push/PR，已补齐手动事件的比较范围：默认分支共同祖先到当前源码；默认分支上检查最后提交，缺失历史仍失败。新增真实临时 Git 仓库回归确认未登记改动仍被拒绝，本地 14 项通过。
 
-所有者随后恢复 Actions，已成功创建 CI `41263412745`、Security Scan `41263412742`。补齐架构门禁脚本的 workflow_dispatch 范围：检查默认分支共同祖先到当前源码；默认分支上检查最后提交，缺失历史仍报错。新增真实临时 Git 仓库回归，确保不把手动运行变成空检查。最终结果以最新提交运行记录为准，历史 422 不代表当前仍不可执行。
+功能源码 `8379c8f95f8792be3849ddcff59a7140d01d6cf4` 的实际结果：
+
+| 运行 | 结果 |
+| --- | --- |
+| [PR CI 41263515589](https://github.com/chochoc/sub2api/actions/runs/41263515589) | 全部通过：架构索引、部署脚本、release helpers、Node 20 前端、golangci-lint、Go 单元与集成测试 |
+| [push CI 41263512444](https://github.com/chochoc/sub2api/actions/runs/41263512444) | 同样全部通过 |
+| [手动 CI 41263536109](https://github.com/chochoc/sub2api/actions/runs/41263536109) | 全部通过，验证手动入口及完整功能差异门禁 |
+| [PR 安全扫描 41263515621](https://github.com/chochoc/sub2api/actions/runs/41263515621) | 前后端全部通过 |
+| [push 安全扫描 41263512532](https://github.com/chochoc/sub2api/actions/runs/41263512532) | 前后端全部通过 |
+
+旧提交 `7f1078cd8` 的初次手动 CI 在发现架构脚本事件不兼容后取消，不作为通过证据；CLA 仅适用官方仓库，在本 Fork 按原 workflow 条件跳过。以上结果对应功能源码，后续只补验证文档，未替换已部署二进制。完整 PR 差异、架构说明、兼容性与验证证据已静态复核；最终提交的检查及合并记录以 [PR #6](https://github.com/chochoc/sub2api/pull/6) 为准。
