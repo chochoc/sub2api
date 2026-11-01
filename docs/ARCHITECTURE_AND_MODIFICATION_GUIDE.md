@@ -40,6 +40,7 @@
 | [管理支付集成 API](ADMIN_PAYMENT_INTEGRATION_API.md) | 外部系统充值、兑换幂等和嵌入页参数；对应 `handler/admin/redeem_handler.go`、`service/idempotency.go`、`frontend/src/utils/embedded-url.ts`。 |
 | [用户鉴权技术方案参考](REF_AUTH_TECHNICAL_PLAN.md) | 既有业务系统文档，仅作为模型测试方案的章节与详细程度参考；其中数据库、角色、路径和实施状态不代表 Sub2API，实现说明以本仓库源码及领域文档为准。 |
 | [API Key 模型测试技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) | 用户密钥页模型发现、文本/图片单项与串行批量测试；独立前端模块使用现有 Key 网关，正常计费，无后端或数据库变更；真实上游/账务验收待完成。 |
+| [模型测试结果详情弹窗方案](API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md) | “查看结果”按需打开独立详情弹窗，复用结果与公共弹窗，不增加生成请求；说明关闭、焦点、滚动及批量生命周期。 |
 | [API Key 模型测试本地验收](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md) | 开启功能的源码嵌入部署、六种协议真实本地网关＋模拟上游验收、使用时间与 DONE 兼容修复；服务保持本机运行，真实供应商及生产发布未验收。 |
 | [插件开发教程](PLUGIN_DEVELOPMENT.md)、[公开插件协议](../backend/pkg/pluginapi/README.md) | `.s2plugin`、进程协议和宿主边界；公开定义在 `backend/pkg/pluginapi/v1/`。 |
 | [插件开发](../backend/pkg/pluginapi/docs/development.md)、[UI Bridge](../backend/pkg/pluginapi/docs/ui-bridge.md)、[包格式](../backend/pkg/pluginapi/docs/package-format.md)、[安全边界](../backend/pkg/pluginapi/docs/security.md) | 插件详细契约；宿主实现 `service/plugin_*.go`。 |
@@ -345,6 +346,8 @@ router/index.ts → views/ 或已有 features/ 页面 → components/ + composab
 
 测试沿用现有 API Key 鉴权、IP、模型白名单、分组、调度和正常计费。模型目录表示声明可见而非实时可用，未知别名手动选协议。批量串行、最多 50 项，图片需要确认；前端不自动重试生成请求或轮流尝试端点。结果仅在弹窗内存，关闭/切换/卸载取消请求并释放预览。无新的后端 API、数据库迁移、插件能力或依赖。接口、限制、测试和发布前置见专门方案 §5–§11。
 
+“查看结果”在主弹窗上方打开 wide、z-index 60 的独立 `BaseDialog`，复用 `ModelTestResult`；仅主动点击时打开。关闭详情只清空模型选择，保留主弹窗、预览与队列；关闭主弹窗才执行会话清理。焦点、滚动锁和顶层 Escape 使用公共组件既有能力；具体交互与验收见 [详情弹窗方案](API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md)。
+
 ### 7.4 页面与后端关联速查
 
 | 功能 | 前端入口（`frontend/src/`） | 后端入口（`backend/internal/`） |
@@ -470,6 +473,17 @@ make check-architecture-index
 历史索引保留追溯信息；移动/删除后修订正文入口，历史条目注明替代位置。验证结果可链接专门报告。索引不是代码 diff 的全文复制，也不能用“杂项”“同上”“已同步”替代行为说明。
 
 <!-- architecture-change-index:start -->
+
+### 2026-11-01 · KEY-MODEL-RESULT-DIALOG-001 · 按需打开模型测试详情弹窗
+
+- 原因与行为：原详情位于长列表底部，不易发现；改为点击“查看结果”后打开独立详情弹窗，取消测试自动选中详情，复用当前结果与图片，不增加请求。
+- 变更代码路径：
+  - `frontend/src/features/key-model-test/components/KeyModelTestModal.vue`：同级详情弹窗、主动打开/独立关闭及会话重置，保留队列与预览。
+  - `frontend/src/features/key-model-test/__tests__/KeyModelTestModal.spec.ts`：按需查看、生命周期、批量、图片及真实 BaseDialog 的 Escape/焦点/滚动集成验证。
+  - `frontend/src/i18n/locales/zh/keyModelTest.ts`：详情标题与关闭文案。
+  - `frontend/src/i18n/locales/en/keyModelTest.ts`：对应英文文案。
+- 正文章节与文档：本指南 §1.1、§7.3.1；`docs/API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md`、原模型测试方案 §9；本地验收记录按实际部署结果追加。
+- 兼容与验证：不改公共 BaseDialog、网关、后端、计费、数据实体或开关。lint/类型、578 项 critical、131 项定向（含真实弹窗逻辑）、双语及开启功能构建通过；本地 embed/浏览器及 GitHub CI 尚待完成，按方案及验收记录补充实际结果。
 
 ### 2026-11-01 · LOCAL-MAIN-DEPLOY-001 · 合入 main 后本机重新部署与验收
 

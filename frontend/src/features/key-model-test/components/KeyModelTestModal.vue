@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog :show="show" :title="t('keyModelTest.title', { name: state.keyInfo.value?.name || '' })" width="extra-wide" @close="requestClose">
+  <BaseDialog :show="show" :title="t('keyModelTest.title', { name: state.keyInfo.value?.name || '' })" width="extra-wide" :close-on-escape="!detail" @close="requestClose">
     <div class="space-y-4 text-gray-900 dark:text-gray-100">
       <p v-if="state.keyInfo.value" class="flex flex-wrap gap-4 text-sm"><span>{{ t('keyModelTest.group') }}: {{ state.keyInfo.value.group || '—' }}</span><span>{{ state.keyInfo.value.masked }}</span></p>
       <p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">{{ t('keyModelTest.costNotice') }}</p>
@@ -28,12 +28,15 @@
         <button type="button" class="btn btn-secondary min-h-11" :disabled="!state.running.value" @click="state.stop">{{ t('keyModelTest.stop') }}</button>
         <label class="flex min-h-11 items-center gap-2 text-sm"><input v-model="includeImages" type="checkbox" :disabled="busy" />{{ t('keyModelTest.includeImages') }}</label>
       </div>
-      <ModelTestTable :models="pageModels" :results="state.results.value" :selected="selected" :overrides="overrides" :global-profile="globalProfile" :disabled="!canTest" @update:selected="selected = $event" @override="setOverride" @test="prepare([$event], true)" @details="detailId = $event" />
+      <ModelTestTable :models="pageModels" :results="state.results.value" :selected="selected" :overrides="overrides" :global-profile="globalProfile" :disabled="!canTest" @update:selected="selected = $event" @override="setOverride" @test="prepare([$event], true)" @details="openDetails" />
       <p v-if="state.counts.value.total" role="status" aria-live="polite" class="text-sm">{{ t('keyModelTest.progress', state.counts.value) }}</p>
       <Pagination v-if="filtered.length" :page="page" :page-size="limits.pageSize" :total="filtered.length" :show-page-size-selector="false" @update:page="page = $event" />
-      <ModelTestResult v-if="detail" :result="detail" :preview-url="detail.previewId ? state.previews.value[detail.previewId] : undefined" />
     </div>
     <template #footer><button type="button" class="btn btn-secondary min-h-11" @click="requestClose">{{ t('keyModelTest.close') }}</button></template>
+  </BaseDialog>
+  <BaseDialog :show="!!detail" :title="t('keyModelTest.detailsTitle')" width="wide" :z-index="60" :close-on-click-outside="false" @close="closeDetails">
+    <ModelTestResult v-if="detail" :key="detail.modelId" class="text-gray-900 dark:text-gray-100" :result="detail" :preview-url="detail.previewId ? state.previews.value[detail.previewId] : undefined" />
+    <template #footer><button type="button" class="btn btn-secondary min-h-11" @click="closeDetails">{{ t('keyModelTest.closeDetails') }}</button></template>
   </BaseDialog>
   <ConfirmDialog :show="!!pendingPlan" :title="t('keyModelTest.confirmTitle')" :message="t('keyModelTest.confirmPlan', { count: pendingPlan?.selections.length || 0, images: pendingPlan?.imageCount || 0, skipped: pendingPlan?.skipped.length || 0 })" :confirm-text="t('keyModelTest.confirmRun')" @confirm="confirmRun" @cancel="pendingPlan = null" />
   <ConfirmDialog :show="confirmClose" :title="t('keyModelTest.closeTitle')" :message="t('keyModelTest.messages.stopped')" :confirm-text="t('keyModelTest.stopAndClose')" :cancel-text="t('keyModelTest.keepTesting')" @confirm="close" @cancel="confirmClose = false" />
@@ -63,22 +66,24 @@ const busy = computed(() => state.loading.value || state.running.value || !!pend
 const canTest = computed(() => !busy.value && !!state.keyInfo.value?.active && !state.error.value)
 const filtered = computed(() => state.models.value.filter(m => `${m.id} ${m.displayName}`.toLowerCase().includes(search.value.toLowerCase())))
 const pageModels = computed(() => filtered.value.slice((page.value - 1) * limits.pageSize, page.value * limits.pageSize))
-const detail = computed(() => state.results.value[detailId.value])
+const detail = computed(() => props.show ? state.results.value[detailId.value] : undefined)
 watch(search, () => { selected.value = []; page.value = 1 })
 watch(() => state.models.value, () => { selected.value = []; overrides.value = Object.create(null); detailId.value = ''; page.value = 1 })
 watch(() => [props.show, props.keyId] as const, ([show, id]) => {
-  pendingPlan.value = null; confirmClose.value = false; search.value = ''; globalProfile.value = 'auto'; stream.value = false; includeImages.value = false
+  closeDetails(); pendingPlan.value = null; confirmClose.value = false; search.value = ''; globalProfile.value = 'auto'; stream.value = false; includeImages.value = false
   if (show) void state.open(id)
   else state.close()
 }, { immediate: true })
 function setOverride(id: string, profile: ProfileChoice) { overrides.value = Object.assign(Object.create(null), overrides.value, { [id]: profile }) }
-function refresh() { pendingPlan.value = null; void state.open(props.keyId) }
+function openDetails(id: string) { if (props.show && state.results.value[id]) detailId.value = id }
+function closeDetails() { detailId.value = '' }
+function refresh() { closeDetails(); pendingPlan.value = null; void state.open(props.keyId) }
 function prepare(ids: string[], single = false) {
   if (!canTest.value) return
   state.error.value = ''
   const plan = state.plan(ids, globalProfile.value, overrides.value, stream.value, includeImages.value, single)
   if (plan.selections.length > limits.batchSize) { state.notice.value = 'batchLimit'; return }
-  detailId.value = single ? ids[0] : ''
+  closeDetails()
   if (plan.selections.length && (!single || plan.imageCount > 0)) pendingPlan.value = plan
   else void state.start(plan)
 }
@@ -87,5 +92,5 @@ function confirmRun() {
   if (plan) void state.start(plan)
 }
 function requestClose() { if (state.running.value) confirmClose.value = true; else close() }
-function close() { confirmClose.value = false; pendingPlan.value = null; state.close(); emit('close') }
+function close() { closeDetails(); confirmClose.value = false; pendingPlan.value = null; state.close(); emit('close') }
 </script>
