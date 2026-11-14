@@ -43,6 +43,7 @@
 | [API Key 模型测试技术方案](API_KEY_MODEL_TEST_TECHNICAL_PLAN.md) | 用户密钥页模型发现、文本/图片单项与串行批量测试；独立前端模块使用现有 Key 网关，正常计费，无后端或数据库变更；真实上游/账务验收待完成。 |
 | [模型测试结果详情弹窗方案](API_KEY_MODEL_TEST_RESULT_DIALOG_TECHNICAL_PLAN.md) | “查看结果”按需打开独立详情弹窗，复用结果与公共弹窗，不增加生成请求；说明关闭、焦点、滚动及批量生命周期。 |
 | [API Key 模型测试本地验收](API_KEY_MODEL_TEST_LOCAL_ACCEPTANCE.md) | 开启功能的源码嵌入部署、六种协议真实本地网关＋模拟上游验收、使用时间与 DONE 兼容修复；服务保持本机运行，真实供应商及生产发布未验收。 |
+| [mux.la 图像尺寸与质量复测](BUG_MUX_IMAGE_SIZE_QUALITY_VALIDATION_20261105.md) | 2026-11-05 首个 Key 三模型 × 五尺寸 × low/medium/high 共 45 个组合，gpt-image-2 9/15 尺寸不符，flare/sunburst 各 15 个相符；第二个 Key 按用户限额另测 9 个典型组合，三个模型实际尺寸及质量声明 9/9 相符（§7）。两个 Key 分别记录，不混合可靠率；报告含首个 Key 的矩阵/CSV。真实计算档位与官方模型身份未独立证明，无生产修改。 |
 | [平台管理 MCP](mcp.md) | 默认关闭的远程 MCP、OAuth S256 PKCE、显式范围/读写同意、撤销、工具目录、限流与审计；不等同于已有运维 skill 或普通网关 Key。 |
 | [插件开发教程](PLUGIN_DEVELOPMENT.md)、[公开插件协议](../backend/pkg/pluginapi/README.md) | `.s2plugin`、进程协议和宿主边界；公开定义在 `backend/pkg/pluginapi/v1/`。 |
 | [插件开发](../backend/pkg/pluginapi/docs/development.md)、[UI Bridge](../backend/pkg/pluginapi/docs/ui-bridge.md)、[包格式](../backend/pkg/pluginapi/docs/package-format.md)、[安全边界](../backend/pkg/pluginapi/docs/security.md) | 插件详细契约；宿主实现 `service/plugin_*.go`。 |
@@ -490,6 +491,18 @@ make check-architecture-index
 历史索引保留追溯信息；移动/删除后修订正文入口，历史条目注明替代位置。验证结果可链接专门报告。索引不是代码 diff 的全文复制，也不能用“杂项”“同上”“已同步”替代行为说明。
 
 <!-- architecture-change-index:start -->
+
+### 2026-11-05 · BUG-MUX-IMAGE-002 · 第二个 Key 的 9 个典型组合
+
+- 原因与结果：按用户新提供的 mux.la Key 及不超过 10 个组合的限制，只发起 9 次 Images 生成，三个模型各 3 个典型样本，实际像素和质量声明全部相符；gpt-image-2 同参数结果与首个 Key 不同，不能由域名/模型名统一推断通道能力。
+- 文档路径：`docs/BUG_MUX_IMAGE_SIZE_QUALITY_VALIDATION_20261105.md` §7、`docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md` §1.1。新旧 Key 证据隔离，无业务源码、账户配置、迁移或部署改动。
+- 验证：9 个规范请求各一次 POST，9 张 base64 PNG 完整解码、原始字节尺寸及 SHA-256 核对，检查拼图视觉查看；表格对照私有摘要、文档链接/围栏、架构索引及 diff 检查通过。密钥、原始响应和图片不纳入版本管理，不由 quality 标签独立证明内部计算档位。
+
+### 2026-11-05 · BUG-MUX-IMAGE-001 · 直连供应商验收尺寸和质量声明
+
+- 原因与结果：按用户新提供的 mux.la Key 直接调用 Images API，首轮 9 次后按追加要求新增 36 次，覆盖三模型 × 五尺寸 × low/medium/high 共 45 个组合；gpt-image-2 9/15 尺寸不符且质量未知，含 2048x1152 → 2048x1153 的一像素错误；flare/sunburst 各 15 个样本尺寸与质量声明相符，不将有限样本或标签视为真实后端能力的永久证明。
+- 文档路径：`docs/BUG_MUX_IMAGE_SIZE_QUALITY_VALIDATION_20261105.md`、`docs/BUG_MUX_IMAGE_SIZE_QUALITY_MATRIX_20261105.csv`、`docs/ARCHITECTURE_AND_MODIFICATION_GUIDE.md`；入口见 §1.1，完整矩阵见报告 §6。仅复测报告、脱敏导出和资料索引，无业务源码、迁移、部署或账户配置改动。
+- 验证：45 份规范请求无旧 response_format，各一次生成 POST；45 张 PNG 完整解码、字节头尺寸及 SHA-256、原图/检查拼图视觉查看，汇总及文档/CSV 逐格核验；文档链接/围栏、架构索引及 diff 检查通过。凭据、签名 URL、原始响应及图片不纳入版本管理；未新增生成重试。
 
 ### 2026-11-01 · UPSTREAM-SYNC-MAIN-020 · 同步官方 v0.2.19 后 main
 
