@@ -44,10 +44,10 @@
 
 | 检查 | 结果 |
 | --- | --- |
-| `git diff --check` | 通过。 |
+| `git diff --check` | 工作区和本地冲突解决改动通过。将合并提交与两个父提交逐项比较时，官方新增测试文档保留了 Markdown 尾随空格及 EOF 空行提示；未改写这些上游文档格式。 |
 | 冲突标记检查 | 通过；仓库中仅剩一处文档代码示例里的等号分隔文本，不是 Git 冲突标记。 |
 | `make -C backend test-unit` | 未完成。本机 Go 为 `1.26.6`，项目要求 `1.27.4`；Go 自动下载 `1.27.4` 时因网络长时间无响应而中止。 |
-| `pnpm --dir frontend install --frozen-lockfile` | 未完成。npm registry 多个包请求出现 `ECONNRESET` 和超时；未修改 lockfile，未生成 `frontend/node_modules`。 |
+| `pnpm --dir frontend install --frozen-lockfile` | 未完成。本机 pnpm 11.5.0 不再读取 `package.json` 的 `pnpm.overrides`，先报告 lockfile 配置不匹配；使用 npm registry 重试时多个包请求出现 `ECONNRESET` 和超时。未修改 lockfile，未生成 `frontend/node_modules`。应按仓库既有流程使用 pnpm 9.15.9 后重试。 |
 | `make -C backend test` | 尚未执行，等待 Go 1.27.4 工具链可用。 |
 | `make test-frontend`、`make build-frontend`、`make build` | 尚未执行，等待后端工具链和前端依赖环境确认。 |
 | 数据库迁移/恢复演练 | 未执行。 |
